@@ -19,8 +19,10 @@ import {
   detachSourceFromAssistant,
   processAllPending,
 } from "@/lib/actions/knowledge";
+import { DatabaseNotice } from "@/components/admin/database-notice";
 import { getPublicAppUrl } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkAliciaAiDatabase } from "@/lib/supabase/status";
 import type { Assistant, KnowledgeSource, WidgetConfig } from "@/lib/types/database";
 import type { AssistantSource } from "@/lib/types/supabase-database";
 
@@ -31,6 +33,15 @@ export default async function AssistantDetailPage({
 }) {
   await requireAdminUser();
   const { id } = await params;
+  const dbHealth = await checkAliciaAiDatabase();
+  if (!dbHealth.reachable) {
+    return (
+      <AdminShell title="Assistant">
+        <DatabaseNotice health={dbHealth} />
+      </AdminShell>
+    );
+  }
+
   const supabase = createAdminClient();
 
   const { data: assistantRow } = await supabase

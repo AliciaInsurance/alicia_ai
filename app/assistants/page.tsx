@@ -7,16 +7,29 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/badge";
 import { requireAdminUser } from "@/lib/auth/admin";
 import { createAssistant } from "@/lib/actions/assistants";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
+import { checkAliciaAiDatabase } from "@/lib/supabase/status";
+import { DatabaseNotice } from "@/components/admin/database-notice";
 import type { Assistant } from "@/lib/types/database";
 
 export default async function AssistantsPage() {
   await requireAdminUser();
-  const supabase = createAdminClient();
-  const { data: assistants } = await supabase
-    .from("assistants")
-    .select("*")
-    .order("created_at", { ascending: false });
+
+  const dbHealth = await checkAliciaAiDatabase();
+  let assistants: Assistant[] | null = null;
+
+  if (dbHealth.reachable && isSupabaseAdminConfigured()) {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from("assistants")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("[assistants] list failed", error.message);
+    } else {
+      assistants = data as Assistant[] | null;
+    }
+  }
 
   return (
     <AdminShell
@@ -24,6 +37,7 @@ export default async function AssistantsPage() {
       title="Assistants"
       description="Configureer assistenten, kennisbronnen en widget-instellingen."
     >
+      <DatabaseNotice health={dbHealth} />
       <div className="card-surface mb-6 p-5 sm:p-6">
         <h2 className="font-display text-lg font-bold text-ink">Nieuwe assistant</h2>
         <form action={createAssistant} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">

@@ -1,10 +1,7 @@
-import { requireAdminUser } from "@/lib/auth/admin";
-
-export default async function KnowledgeSourcesLayout({
+export default function KnowledgeSourcesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  await requireAdminUser();
   return children;
 }

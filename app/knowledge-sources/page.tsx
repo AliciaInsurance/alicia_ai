@@ -6,16 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { requireAdminUser } from "@/lib/auth/admin";
 import { createKnowledgeSource } from "@/lib/actions/knowledge";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { DatabaseNotice } from "@/components/admin/database-notice";
+import { createAdminClient, isSupabaseAdminConfigured } from "@/lib/supabase/admin";
+import { checkAliciaAiDatabase } from "@/lib/supabase/status";
 import type { KnowledgeSource } from "@/lib/types/database";
 
 export default async function KnowledgeSourcesPage() {
   await requireAdminUser();
-  const supabase = createAdminClient();
-  const { data: sources } = await supabase
-    .from("knowledge_sources")
-    .select("*")
-    .order("name");
+
+  const dbHealth = await checkAliciaAiDatabase();
+  let sources: KnowledgeSource[] | null = null;
+
+  if (dbHealth.reachable && isSupabaseAdminConfigured()) {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from("knowledge_sources")
+      .select("*")
+      .order("name");
+    if (!error) sources = data as KnowledgeSource[] | null;
+    else console.error("[knowledge-sources] list failed", error.message);
+  }
 
   return (
     <AdminShell
@@ -23,6 +33,7 @@ export default async function KnowledgeSourcesPage() {
       title="Kennisbronnen"
       description="Documenten en FAQ's voor RAG-retrieval per assistant."
     >
+      <DatabaseNotice health={dbHealth} />
       <div className="card-surface mb-6 p-5 sm:p-6">
         <h2 className="font-display text-lg font-bold text-ink">Nieuwe kennisbron</h2>
         <form action={createKnowledgeSource} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
