@@ -133,11 +133,24 @@ Optional: `data-primary-color="#0f766e"`.
 | `POST /api/chat` | Public chat (rate-limited); admin test requires session |
 | `GET /api/widget/config?assistant=` | Public widget metadata (no secrets) |
 | `GET /widget.js` | Embed loader script |
+| `GET /api/health` | Deployment health check (`{"ok":true}`) |
+
+## Vercel / domain troubleshooting
+
+If you see **404 NOT_FOUND** on every path (including `/login`):
+
+1. **Vercel → Project → Deployments** — latest production deploy must be **Ready** (not Error/Canceled).
+2. **Settings → Domains** — `ask.alicia.insure` must be assigned to **this** project (not another Alicia app).
+3. **Settings → General** — Framework Preset **Next.js**, Root Directory empty (repo root), Build `npm run build`.
+4. Open the **\*.vercel.app** preview URL from the latest deploy; if that works but the custom domain does not, fix DNS/domain assignment.
+5. Verify `GET /api/health` on the working URL.
+
+Admin routes are protected by **Auth.js** in layouts/server actions (no Edge middleware).
 
 ## Security decisions (v0.1)
 
 - OpenAI + service role keys **only on server**.
-- `alicia_ai` schema **not granted** to `anon`/`authenticated`; admin mutations via server actions after Supabase Auth.
+- `alicia_ai` schema **not granted** to `anon`/`authenticated`; admin mutations via server actions after Auth.js session checks.
 - Optional `ALICIA_AI_ADMIN_EMAILS` allowlist.
 - Chat input validated with Zod; assistant slug restricted to `[a-z0-9-]`.
 - RAG retrieval limited to sources **attached to the resolved assistant**.
