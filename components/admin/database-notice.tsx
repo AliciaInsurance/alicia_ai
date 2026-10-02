@@ -13,6 +13,9 @@ export function DatabaseNotice({ health }: { health: DbHealth }) {
       {health.code ? (
         <p className="mt-1 font-mono text-xs text-stone">code: {health.code}</p>
       ) : null}
+      {health.detail ? (
+        <p className="mt-2 break-all font-mono text-xs text-stone">{health.detail}</p>
+      ) : null}
       {health.hint ? <p className="mt-3 text-ink">{health.hint}</p> : null}
       <p className="mt-3 text-sm text-muted">
         Verify in Supabase SQL:{" "}
