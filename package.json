@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
-    "next": "15.2.4",
+    "next": "15.2.9",
     "next-auth": "^5.0.0-beta.32",
     "openai": "^4.89.0",
     "pdf-parse": "^1.1.1",
@@ -29,7 +29,7 @@
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
     "eslint": "^9",
-    "eslint-config-next": "15.2.4",
+    "eslint-config-next": "15.2.9",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
