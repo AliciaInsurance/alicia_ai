@@ -26,7 +26,7 @@ This repo was bootstrapped as a greenfield Next.js 15 app (TypeScript, App Route
 - Node.js 20+
 - Existing Alicia Supabase project
 - OpenAI API key
-- Supabase Auth user(s) for admin login
+- Google Workspace (@alicia.insure) via **Auth.js / NextAuth** (same pattern as Gold/Kalinda)
 
 ## Environment variables
 
@@ -34,12 +34,26 @@ Copy `.env.example` to `.env.local`:
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Auth session (admin UI) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (database only) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only DB access to `alicia_ai` schema |
 | `OPENAI_API_KEY` | Chat + embeddings (server only) |
 | `NEXT_PUBLIC_APP_URL` | Public base URL for widget script/embed (production: `https://ask.alicia.insure`) |
-| `ALICIA_AI_ADMIN_EMAILS` | Optional comma-separated admin email allowlist |
+| `AUTH_SECRET` | Auth.js session secret |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (Workspace) |
+| `AUTH_URL` | Optional; production canonical URL is `https://ask.alicia.insure` |
+| `ALICIA_AI_ADMIN_EMAILS` | Optional extra allowlist (still requires `@alicia.insure`) |
+| `DEMO_MODE=true` | Local only: skip auth (never on production) |
+
+### Admin authentication (Google SSO via Auth.js)
+
+Same architecture as **Gold** and **Kalinda**: Google OAuth → Auth.js JWT session → server-side `@alicia.insure` check (fail closed).
+
+1. Create a **Google Cloud OAuth client** (Web application).
+2. **Authorized redirect URIs**:
+   - `https://ask.alicia.insure/api/auth/callback/google`
+   - `http://localhost:3000/api/auth/callback/google`
+3. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `AUTH_SECRET` in Vercel / `.env.local`.
+4. Admin login is **Google only** (no Supabase Auth, no passwords). Public widget/chat stays anonymous.
 
 ## Database setup
 

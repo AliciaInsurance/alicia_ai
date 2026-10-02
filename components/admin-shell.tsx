@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { signOut } from "@/lib/actions/auth";
+import { signOutAction } from "@/lib/actions/auth";
 
 export function AdminShell({
   children,
@@ -25,7 +25,7 @@ export function AdminShell({
               </Link>
             </nav>
           </div>
-          <form action={signOut}>
+          <form action={signOutAction}>
             <button type="submit" className="text-sm text-slate-600 hover:text-slate-900">
               Sign out
             </button>

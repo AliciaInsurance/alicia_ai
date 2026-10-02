@@ -28,10 +28,6 @@ export function getSupabaseUrl(): string {
   return required("NEXT_PUBLIC_SUPABASE_URL");
 }
 
-export function getSupabaseAnonKey(): string {
-  return required("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-}
-
 export function getSupabaseServiceRoleKey(): string {
   return requiredServer("SUPABASE_SERVICE_ROLE_KEY");
 }

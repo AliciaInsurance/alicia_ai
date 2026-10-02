@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { ChatPanel } from "@/components/chat-panel";
 import { resolveActiveAssistant } from "@/lib/chat/resolve-assistant";
 import { createAdminClient } from "@/lib/supabase/admin";

@@ -3,7 +3,7 @@ import { runChat } from "@/lib/chat/orchestrator";
 import { log } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatRequestSchema } from "@/lib/validation/chat";
-import { createAuthServerClient } from "@/lib/supabase/server";
+import { requireApiAuth } from "@/lib/auth/auth";
 
 function clientIp(request: NextRequest): string {
   return (
@@ -33,13 +33,8 @@ export async function POST(request: NextRequest) {
     const body = parsed.data;
 
     if (body.channel === "admin_test") {
-      const supabase = await createAuthServerClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
+      const authError = await requireApiAuth();
+      if (authError) return authError;
     }
 
     log.info("chat_request", {

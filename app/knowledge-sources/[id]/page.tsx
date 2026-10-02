@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/admin-shell";
 import { requireAdminUser } from "@/lib/auth/admin";

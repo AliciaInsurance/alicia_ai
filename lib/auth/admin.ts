@@ -1,24 +1,36 @@
 import { redirect } from "next/navigation";
-import { getAdminAllowlist } from "@/lib/env";
-import { createAuthServerClient } from "@/lib/supabase/server";
+import { auth, isAuthConfigured, isAuthRequired } from "@/lib/auth/auth";
+import { isAllowedEmail } from "@/lib/auth/auth-policy";
+import { loginErrorMessage } from "@/lib/auth/login-error";
 
 export async function requireAdminUser() {
-  const supabase = await createAuthServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!isAuthRequired()) {
+    return { email: "demo@alicia.insure", id: "demo", name: "Demo" };
+  }
 
-  if (!user) {
+  if (!isAuthConfigured()) {
+    redirect("/login?error=Configuration");
+  }
+
+  let session = null;
+  try {
+    session = await auth();
+  } catch (error) {
+    console.error("[auth] requireAdminUser", error);
+    redirect(`/login?error=${encodeURIComponent("Configuration")}`);
+  }
+
+  if (!session?.user?.email || !isAllowedEmail(session.user.email)) {
     redirect("/login?next=/assistants");
   }
 
-  const allowlist = getAdminAllowlist();
-  if (allowlist.length > 0) {
-    const email = user.email?.toLowerCase();
-    if (!email || !allowlist.includes(email)) {
-      redirect("/login?error=unauthorized");
-    }
-  }
+  return session.user;
+}
 
-  return user;
+export function formatLoginError(searchParams: {
+  error?: string;
+  hint?: string;
+  reason?: string;
+}) {
+  return loginErrorMessage(searchParams.error, searchParams.hint, searchParams.reason);
 }
