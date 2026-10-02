@@ -130,7 +130,7 @@ Optional: `data-primary-color="#0f766e"`.
 
 | Route | Description |
 |-------|-------------|
-| `POST /api/chat` | Public chat (rate-limited); admin test requires session |
+| `POST /api/chat` | Public chat (dev-only in-memory rate limit); admin test requires session |
 | `GET /api/widget/config?assistant=` | Public widget metadata (no secrets) |
 | `GET /widget.js` | Embed loader script |
 | `GET /api/health` | Deployment health check (`{"ok":true}`) |
@@ -159,12 +159,12 @@ Admin authorization remains server-side (`requireAdminUser()` in layouts + Auth.
 - Chat input validated with Zod; assistant slug restricted to `[a-z0-9-]`.
 - RAG retrieval limited to sources **attached to the resolved assistant**.
 - Upload type/size checks; filenames sanitized; no remote URL ingestion.
-- In-memory rate limit on `/api/chat` (per IP, 30/min) — replace with Redis/Upstash for production multi-instance.
+- **Development-only** in-memory rate limit on `/api/chat` (per IP, 30/min). This is **not** reliable production abuse protection (not shared across instances, resets on cold start). **Production prerequisite:** Redis/Upstash (or equivalent) before go-live.
 - Structured JSON logs without secrets; generic errors to customers.
 
 ## Known limitations / tech debt
 
-- Rate limiting is in-process (not shared across Vercel instances).
+- Rate limiting is in-process and suitable for **local development only** — not shared across Vercel instances; do not treat it as production-ready.
 - Document processing is synchronous in the upload request (fine for small v0.1 docs).
 - Widget styling hooks exist in DB but minimal UI theming in v0.1.
 - No Supabase Storage yet — extracted text stored in `knowledge_documents.raw_text`.

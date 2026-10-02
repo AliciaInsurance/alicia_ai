@@ -1,3 +1,12 @@
+/**
+ * Development-only in-memory rate limiter for local/single-instance use.
+ *
+ * Not reliable for production: counters are per Node process, reset on cold
+ * starts, and are not shared across horizontally scaled instances (e.g. Vercel).
+ *
+ * Production prerequisite: replace with a shared store (Redis, Upstash, etc.)
+ * before treating this as abuse protection.
+ */
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 const WINDOW_MS = 60_000;

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { sanitizeEmbedReferrer } from "@/lib/chat/referrer";
 import { runChat } from "@/lib/chat/orchestrator";
 import { log } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -43,14 +44,7 @@ export async function POST(request: NextRequest) {
       ip,
     });
 
-    let referrerDomain: string | undefined;
-    if (body.referrerUrl) {
-      try {
-        referrerDomain = new URL(body.referrerUrl).hostname;
-      } catch {
-        referrerDomain = undefined;
-      }
-    }
+    const referrer = sanitizeEmbedReferrer(body.referrerUrl);
 
     const result = await runChat({
       assistantSlug: body.assistant,
@@ -58,8 +52,8 @@ export async function POST(request: NextRequest) {
       anonymousSessionId: body.sessionId,
       conversationId: body.conversationId,
       channel: body.channel,
-      referrerUrl: body.referrerUrl,
-      referrerDomain,
+      referrerUrl: referrer?.referrerUrl,
+      referrerDomain: referrer?.referrerDomain,
     });
 
     return NextResponse.json(result);

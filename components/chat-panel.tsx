@@ -12,6 +12,8 @@ interface ChatPanelProps {
   greeting?: string;
   primaryColor?: string;
   showDevErrors?: boolean;
+  /** Parent page URL when loaded inside the widget iframe (not ask.alicia.insure). */
+  embedReferrerUrl?: string;
 }
 
 const SESSION_KEY = "alicia_ai_session_id";
@@ -24,6 +26,7 @@ export function ChatPanel({
   greeting,
   primaryColor = "#0f766e",
   showDevErrors = false,
+  embedReferrerUrl,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -71,7 +74,12 @@ export function ChatPanel({
           sessionId,
           conversationId,
           channel,
-          referrerUrl: typeof window !== "undefined" ? window.location.href : undefined,
+          referrerUrl:
+            channel === "widget"
+              ? embedReferrerUrl
+              : typeof window !== "undefined"
+                ? window.location.href
+                : undefined,
         }),
       });
 
@@ -96,7 +104,16 @@ export function ChatPanel({
     } finally {
       setLoading(false);
     }
-  }, [assistantSlug, channel, conversationId, input, loading, sessionId, showDevErrors]);
+  }, [
+    assistantSlug,
+    channel,
+    conversationId,
+    embedReferrerUrl,
+    input,
+    loading,
+    sessionId,
+    showDevErrors,
+  ]);
 
   return (
     <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-white">

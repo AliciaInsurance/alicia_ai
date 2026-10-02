@@ -49,7 +49,13 @@ async function getOrCreateConversation(
       .eq("assistant_id", assistant.id)
       .maybeSingle();
     const existing = existingRow as Conversation | null;
-    if (existing) return existing;
+    if (
+      existing &&
+      existing.anonymous_session_id === input.anonymousSessionId &&
+      existing.channel === input.channel
+    ) {
+      return existing;
+    }
   }
 
   let widgetConfigId: string | null = null;
