@@ -1,0 +1,55 @@
+import { ChatPanel } from "@/components/chat-panel";
+import { resolveActiveAssistant } from "@/lib/chat/resolve-assistant";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export default async function EmbedChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ assistant?: string; primary?: string }>;
+}) {
+  const params = await searchParams;
+  const assistantKey = params.assistant ?? "";
+
+  if (!assistantKey || !/^[a-z0-9-]+$/.test(assistantKey)) {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-slate-600">
+        Widget configuration error.
+      </div>
+    );
+  }
+
+  try {
+    const assistant = await resolveActiveAssistant(assistantKey);
+    const supabase = createAdminClient();
+    const { data: widget } = await supabase
+      .from("widget_configs")
+      .select("primary_color, is_enabled")
+      .eq("assistant_id", assistant.id)
+      .maybeSingle();
+
+    if (!widget?.is_enabled) throw new Error("disabled");
+
+    const primary =
+      params.primary && /^#[0-9a-fA-F]{6}$/.test(params.primary)
+        ? params.primary
+        : (widget.primary_color ?? "#0f766e");
+
+    return (
+      <div className="h-screen bg-slate-50 p-2">
+        <ChatPanel
+          assistantSlug={assistantKey}
+          channel="widget"
+          displayName={assistant.customer_display_name}
+          greeting={assistant.greeting}
+          primaryColor={primary}
+        />
+      </div>
+    );
+  } catch {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-slate-600">
+        This assistant is not available.
+      </div>
+    );
+  }
+}
