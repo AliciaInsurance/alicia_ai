@@ -129,7 +129,7 @@ export async function checkAliciaAiDatabase(): Promise<DbHealth> {
     let hint = hintForDbError(formatted.code, formatted.message);
     let detail = formatted.detail;
     let message = formatted.message;
-    let code = formatted.code ?? "query_error";
+    const code = formatted.code ?? "query_error";
 
     if (!formatted.message.trim() || code === "query_error") {
       try {
