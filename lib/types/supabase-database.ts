@@ -23,6 +23,8 @@ export interface KnowledgeChunk extends Record<string, unknown> {
   content: string;
   embedding: number[] | null;
   token_count: number | null;
+  page_from: number | null;
+  page_to: number | null;
   created_at: string;
 }
 

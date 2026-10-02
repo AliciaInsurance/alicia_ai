@@ -165,7 +165,11 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
     assistant.fallback_message;
 
   const metadata = {
-    retrieved_chunk_ids: chunks.map((c) => c.id),
+    retrieved_knowledge: chunks.map((c) => ({
+      document_id: c.document_id,
+      page_from: c.page_from,
+      page_to: c.page_to,
+    })),
     prompt_tokens: completion.usage?.prompt_tokens,
     completion_tokens: completion.usage?.completion_tokens,
     total_tokens: completion.usage?.total_tokens,

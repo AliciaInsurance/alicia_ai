@@ -1,8 +1,10 @@
 import { createHash } from "crypto";
-import { assessPdfExtractQuality } from "@/lib/knowledge/pdf-text-quality";
+import { parsePdfTextLayer } from "@/lib/knowledge/pdf-text-extract";
+import { assessPdfTextQuality } from "@/lib/knowledge/pdf-text-quality";
+import { PDF_LIMITS } from "@/lib/knowledge/pdf-limits";
 import type { DocumentSourceType } from "@/lib/types/database";
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_FILE_BYTES = PDF_LIMITS.maxFileBytes;
 
 const ALLOWED_MIME: Record<string, DocumentSourceType> = {
   "application/pdf": "pdf",
@@ -30,24 +32,18 @@ export function assertFileSize(size: number) {
   }
 }
 
+/** Text/markdown and text-layer PDF only (no vision fallback). Prefer ingestPdfBuffer for PDFs. */
 export async function extractTextFromBuffer(
   buffer: Buffer,
   sourceType: DocumentSourceType,
 ): Promise<string> {
   if (sourceType === "pdf") {
-    try {
-      const pdfParse = (await import("pdf-parse")).default;
-      const parsed = await pdfParse(buffer);
-      const text = parsed.text?.trim() ?? "";
-      const quality = assessPdfExtractQuality(text);
-      if (!quality.ok) {
-        throw new Error(quality.message);
-      }
-      return text;
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new Error(`PDF text extraction failed: ${detail}`);
+    const { text, pageCount } = await parsePdfTextLayer(buffer);
+    const assessment = assessPdfTextQuality(text, pageCount);
+    if (assessment.quality !== "good") {
+      throw new Error(assessment.reason);
     }
+    return text;
   }
   return buffer.toString("utf8").trim();
 }

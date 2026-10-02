@@ -5,13 +5,12 @@ import { AdminShell } from "@/components/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { StatusBadge } from "@/components/ui/badge";
 import { requireAdminUser } from "@/lib/auth/admin";
+import { KnowledgeDocumentRow } from "@/components/knowledge-document-row";
 import {
   addManualDocument,
   addUrlDocument,
   processAllPending,
-  reprocessDocument,
   uploadDocument,
 } from "@/lib/actions/knowledge";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -125,35 +124,7 @@ export default async function KnowledgeSourceDetailPage({
         </div>
         <ul className="mt-4 divide-y divide-ink/5">
           {(documents as KnowledgeDocument[] | null)?.map((doc) => (
-            <li key={doc.id} className="py-4 text-[15px]">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="font-semibold text-ink">{doc.title}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone">
-                    <span>{doc.source_type}</span>
-                    <StatusBadge status={doc.status} />
-                  </div>
-                  {doc.source_url ? (
-                    <a
-                      href={doc.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 block max-w-xl truncate text-xs text-accent hover:underline"
-                    >
-                      {doc.source_url}
-                    </a>
-                  ) : null}
-                  {doc.error_message ? (
-                    <div className="mt-1 text-xs text-danger">{doc.error_message}</div>
-                  ) : null}
-                </div>
-                <form action={reprocessDocument.bind(null, doc.id, id)}>
-                  <Button type="submit" variant="ghost" size="sm">
-                    Opnieuw
-                  </Button>
-                </form>
-              </div>
-            </li>
+            <KnowledgeDocumentRow key={doc.id} doc={doc} sourceId={id} />
           ))}
           {!documents?.length ? (
             <li className="py-4 text-muted">Nog geen documenten.</li>

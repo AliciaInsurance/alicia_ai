@@ -1,6 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  applyTextFields,
+  buildDocumentFieldsFromIngest,
+} from "@/lib/knowledge/document-extraction";
 import { fetchUrlContent } from "@/lib/knowledge/fetch-url";
-import { hashContent } from "@/lib/knowledge/extract";
 import type { KnowledgeDocument } from "@/lib/types/database";
 
 export async function refreshUrlDocumentContent(
@@ -26,15 +29,29 @@ export async function refreshUrlDocumentContent(
     const fetched = await fetchUrlContent(doc.source_url);
     const title = doc.title?.trim() && doc.title !== doc.source_url ? doc.title : fetched.title;
 
+    const mode = doc.status === "ready" ? "rerun_keep_ready" : "initial";
+    const applied = fetched.pdfIngest
+      ? buildDocumentFieldsFromIngest(fetched.pdfIngest, mode, doc.status)
+      : {
+          text: fetched.text,
+          pendingText: null as string | null,
+          status: "uploaded" as const,
+          fields: {
+            extraction_method: null,
+            extraction_quality: null,
+            extraction_reason: null,
+            page_count: null,
+            extraction_review_status: "not_required",
+            error_message: null,
+          },
+        };
+
     const { data: updated, error: updateError } = await supabase
       .from("knowledge_documents")
       .update({
         title,
-        raw_text: fetched.text,
-        content_hash: hashContent(fetched.text),
         mime_type: fetched.mimeType,
-        error_message: null,
-        status: "uploaded",
+        ...applyTextFields(applied),
       })
       .eq("id", documentId)
       .select("*")

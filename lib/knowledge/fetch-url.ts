@@ -1,9 +1,10 @@
 import { lookup } from "dns/promises";
 import { isIP } from "net";
 import type { DocumentSourceType } from "@/lib/types/database";
-import { extractTextFromBuffer } from "@/lib/knowledge/extract";
+import { ingestPdfBuffer } from "@/lib/knowledge/ingest-pdf";
+import { PDF_LIMITS } from "@/lib/knowledge/pdf-limits";
 
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES = PDF_LIMITS.maxFileBytes;
 const FETCH_TIMEOUT_MS = 45_000;
 
 const BLOCKED_HOSTNAMES = new Set([
@@ -20,6 +21,12 @@ export type FetchedUrlContent = {
   mimeType: string | null;
   sourceType: DocumentSourceType;
   resolvedUrl: string;
+  pdfBuffer?: Buffer;
+  pdfIngest?: Awaited<ReturnType<typeof ingestPdfBuffer>>;
+};
+
+export type FetchUrlOptions = {
+  retainPdfBuffer?: boolean;
 };
 
 function isPrivateIpv4(ip: string): boolean {
@@ -205,7 +212,10 @@ async function readResponseBody(response: Response): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export async function fetchUrlContent(rawUrl: string): Promise<FetchedUrlContent> {
+export async function fetchUrlContent(
+  rawUrl: string,
+  options: FetchUrlOptions = {},
+): Promise<FetchedUrlContent> {
   const inputUrl = await assertSafeFetchUrl(rawUrl);
   const target = resolveFetchTarget(inputUrl);
   const fetchUrlParsed = await assertSafeFetchUrl(target.fetchUrl);
@@ -245,9 +255,15 @@ export async function fetchUrlContent(rawUrl: string): Promise<FetchedUrlContent
       : detectSourceTypeFromMime(mimeType, target.sourceTypeHint);
     let text: string;
     let title = target.titleHint;
+    let pdfIngest: FetchedUrlContent["pdfIngest"];
+    let pdfBuffer: Buffer | undefined;
 
     if (sourceType === "pdf") {
-      text = await extractTextFromBuffer(buffer, "pdf");
+      pdfIngest = await ingestPdfBuffer(buffer);
+      text = pdfIngest.text;
+      if (options.retainPdfBuffer) {
+        pdfBuffer = buffer;
+      }
     } else if (mimeType?.toLowerCase().includes("text/html")) {
       const html = buffer.toString("utf8");
       if (/accounts\.google\.com|ServiceLogin|signin/i.test(html)) {
@@ -271,6 +287,8 @@ export async function fetchUrlContent(rawUrl: string): Promise<FetchedUrlContent
       mimeType,
       sourceType: sourceType === "pdf" || sourceType === "markdown" ? sourceType : "url",
       resolvedUrl: fetchUrlParsed.toString(),
+      pdfBuffer,
+      pdfIngest,
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {

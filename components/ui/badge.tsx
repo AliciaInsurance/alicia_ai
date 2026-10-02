@@ -33,8 +33,12 @@ export function StatusBadge({ status }: { status: string }) {
     active: "bg-success-bg text-forest",
     inactive: "bg-cream text-stone ring-1 ring-ink/5",
     uploaded: "bg-cream text-muted ring-1 ring-ink/5",
+    extracting: "bg-warn-bg text-warn",
+    awaiting_review: "bg-warn-bg text-warn",
     processing: "bg-warn-bg text-warn",
     ready: "bg-success-bg text-forest",
+    failed: "bg-danger-bg text-danger",
+    rejected: "bg-danger-bg text-danger",
     error: "bg-danger-bg text-danger",
   };
   return (

@@ -69,8 +69,8 @@ Same architecture as **Gold** and **Kalinda**: Google OAuth → Auth.js JWT sess
 | `platform_settings` | Platform-wide insurance behaviour rules |
 | `assistants` | Assistant configuration |
 | `knowledge_sources` | Reusable knowledge collections |
-| `knowledge_documents` | Manual text / uploads + processing status |
-| `knowledge_chunks` | Chunk text + embeddings |
+| `knowledge_documents` | Manual text / uploads / URLs + extraction & review metadata |
+| `knowledge_chunks` | Chunk text + embeddings + optional `page_from` / `page_to` |
 | `assistant_sources` | Assistant ↔ source join |
 | `widget_configs` | Public widget slug + styling hooks |
 | `conversations` | Anonymous persisted chats |
@@ -94,6 +94,7 @@ After migrations + seed, open the **BAV Sales** assistant and use **Test**, or e
 ```bash
 npm run typecheck
 npm run lint
+npm run test:knowledge
 ```
 
 ## Admin usage
@@ -108,8 +109,28 @@ npm run lint
 ### Add knowledge
 
 1. **Knowledge** → create a source, or use **Assistants → Knowledge → Attach**.
-2. Open the source → add manual text or upload PDF/txt/md.
-3. Processing runs server-side; status moves to **ready** (or **failed** with error).
+2. Open the source → add manual text, upload PDF/txt/md, or paste a **public URL** (PDF, txt, Google Doc/Sheet, etc.).
+3. Processing runs server-side; status moves to **ready** (or **failed** / **awaiting_review** for scanned PDFs).
+
+#### PDF ingestion (text layer + scanned fallback)
+
+1. **Text-layer PDFs** — `pdf-parse` extracts copyable text; quality heuristics (character count, letters per page, whitespace ratio, replacement characters) must pass. No human review; chunks + embeddings run automatically.
+2. **Scanned / image-only PDFs** — when text extraction is insufficient, Alicia runs **server-side vision extraction** (OpenAI, default model `gpt-4o`, override with `ALICIA_PDF_VISION_MODEL`). Pages are split with `pdf-lib` and transcribed page-by-page with a strict *transcription-only* prompt (preserve legal wording; mark unreadable sections as `[ONLEESBAAR]`).
+3. **Human review** — vision-extracted PDFs stay in **`awaiting_review`** until an admin approves the extracted text on the knowledge source page. **No chunks are embedded or retrievable until approval.**
+4. **Page provenance** — vision output uses `--- Pagina N ---` markers; chunks store `page_from` / `page_to`. Chat message metadata stores `document_id` and page range (not customer-visible citations in v0.1).
+
+**Synchronous limits (v0.1, no background queue):**
+
+| Limit | Value |
+|-------|--------|
+| Max PDF / URL download size | 8 MB |
+| Max pages for vision path | 40 |
+| Per-page vision timeout | 90 s |
+| Total vision budget per document | 12 min |
+
+Oversized documents fail with: *Dit document is te groot voor directe verwerking. Splits het document of voeg background processing toe.*
+
+Requires **`OPENAI_API_KEY`** with access to the configured vision model.
 
 ### Test chat
 
@@ -158,14 +179,15 @@ Admin authorization remains server-side (`requireAdminUser()` in layouts + Auth.
 - Optional `ALICIA_AI_ADMIN_EMAILS` allowlist.
 - Chat input validated with Zod; assistant slug restricted to `[a-z0-9-]`.
 - RAG retrieval limited to sources **attached to the resolved assistant**.
-- Upload type/size checks; filenames sanitized; no remote URL ingestion.
+- Upload type/size checks; filenames sanitized; URL ingestion with SSRF-safe fetch (DNS + private IP blocking).
 - **Development-only** in-memory rate limit on `/api/chat` (per IP, 30/min). This is **not** reliable production abuse protection (not shared across instances, resets on cold start). **Production prerequisite:** Redis/Upstash (or equivalent) before go-live.
 - Structured JSON logs without secrets; generic errors to customers.
 
 ## Known limitations / tech debt
 
 - Rate limiting is in-process and suitable for **local development only** — not shared across Vercel instances; do not treat it as production-ready.
-- Document processing is synchronous in the upload request (fine for small v0.1 docs).
+- Document processing is synchronous in the upload/URL request (including multi-page vision extraction within the limits above).
+- Scanned PDFs require admin approval before embeddings; side-by-side PDF preview is not implemented yet.
 - Widget styling hooks exist in DB but minimal UI theming in v0.1.
 - No Supabase Storage yet — extracted text stored in `knowledge_documents.raw_text`.
 - Custom schema + pgvector operator paths may need tweaking per Supabase project (see migration comments).
