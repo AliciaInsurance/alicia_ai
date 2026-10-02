@@ -5,7 +5,9 @@ import { hashContent } from "@/lib/knowledge/extract";
 import { log } from "@/lib/logger";
 import type { KnowledgeDocument } from "@/lib/types/database";
 
-export async function processDocument(documentId: string): Promise<void> {
+export type ProcessDocumentResult = { ok: true } | { ok: false; error: string };
+
+export async function processDocument(documentId: string): Promise<ProcessDocumentResult> {
   const supabase = createAdminClient();
   const started = Date.now();
 
@@ -18,7 +20,8 @@ export async function processDocument(documentId: string): Promise<void> {
   const doc = docRow as KnowledgeDocument | null;
 
   if (fetchError || !doc) {
-    throw new Error(fetchError?.message ?? "Document not found");
+    const message = fetchError?.message ?? "Document not found";
+    return { ok: false, error: message };
   }
 
   if (!doc.raw_text?.trim()) {
@@ -26,7 +29,7 @@ export async function processDocument(documentId: string): Promise<void> {
       .from("knowledge_documents")
       .update({ status: "failed", error_message: "No text content to process" })
       .eq("id", documentId);
-    throw new Error("No text content to process");
+    return { ok: false, error: "No text content to process" };
   }
 
   await supabase
@@ -73,6 +76,7 @@ export async function processDocument(documentId: string): Promise<void> {
       chunkCount: chunks.length,
       latencyMs: Date.now() - started,
     });
+    return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Processing failed";
     await supabase
@@ -81,7 +85,7 @@ export async function processDocument(documentId: string): Promise<void> {
       .eq("id", documentId);
 
     log.error("document_processing_failed", { documentId, message });
-    throw err;
+    return { ok: false, error: message };
   }
 }
 
@@ -97,3 +101,4 @@ export async function processPendingDocumentsForSource(sourceId: string) {
     await processDocument(doc.id);
   }
 }
+

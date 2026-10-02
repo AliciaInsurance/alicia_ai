@@ -1,6 +1,6 @@
 export type AssistantStatus = "draft" | "active" | "inactive";
 export type DocumentStatus = "uploaded" | "processing" | "ready" | "failed";
-export type DocumentSourceType = "manual" | "pdf" | "text" | "markdown";
+export type DocumentSourceType = "manual" | "pdf" | "text" | "markdown" | "url";
 export type MessageRole = "user" | "assistant" | "system";
 export type ConversationChannel = "widget" | "admin_test";
 
@@ -39,6 +39,7 @@ export interface KnowledgeDocument {
   content_hash: string | null;
   raw_text: string | null;
   storage_path: string | null;
+  source_url: string | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;

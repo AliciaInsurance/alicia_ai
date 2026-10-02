@@ -1,5 +1,4 @@
 import { createHash } from "crypto";
-import pdf from "pdf-parse";
 import type { DocumentSourceType } from "@/lib/types/database";
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -32,11 +31,17 @@ export function assertFileSize(size: number) {
 
 export async function extractTextFromBuffer(
   buffer: Buffer,
-  sourceType: DocumentSourceType
+  sourceType: DocumentSourceType,
 ): Promise<string> {
   if (sourceType === "pdf") {
-    const parsed = await pdf(buffer);
-    return parsed.text?.trim() ?? "";
+    try {
+      const pdfParse = (await import("pdf-parse")).default;
+      const parsed = await pdfParse(buffer);
+      return parsed.text?.trim() ?? "";
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`PDF text extraction failed: ${detail}`);
+    }
   }
   return buffer.toString("utf8").trim();
 }
