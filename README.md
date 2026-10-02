@@ -38,7 +38,7 @@ Copy `.env.example` to `.env.local`:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Auth session (admin UI) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only DB access to `alicia_ai` schema |
 | `OPENAI_API_KEY` | Chat + embeddings (server only) |
-| `NEXT_PUBLIC_APP_URL` | Public base URL for widget script/embed |
+| `NEXT_PUBLIC_APP_URL` | Public base URL for widget script/embed (production: `https://ask.alicia.insure`) |
 | `ALICIA_AI_ADMIN_EMAILS` | Optional comma-separated admin email allowlist |
 
 ## Database setup
@@ -105,7 +105,7 @@ Assistant detail → **Test** tab uses `/api/chat` with `channel: admin_test` (s
 
 ```html
 <script
-  src="https://YOUR_APP_URL/widget.js"
+  src="https://ask.alicia.insure/widget.js"
   data-assistant="bav-sales">
 </script>
 ```

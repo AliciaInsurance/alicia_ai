@@ -13,8 +13,15 @@ function requiredServer(name: string): string {
   return required(name);
 }
 
+const PRODUCTION_APP_URL = "https://ask.alicia.insure";
+
 export function getPublicAppUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
+  return process.env.NODE_ENV === "production"
+    ? PRODUCTION_APP_URL
+    : "http://localhost:3000";
 }
 
 export function getSupabaseUrl(): string {
