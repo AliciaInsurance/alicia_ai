@@ -1,20 +1,14 @@
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/admin-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { AddKnowledgePanel } from "@/components/knowledge/add-knowledge-panel";
+import { SourceItemsTable } from "@/components/knowledge/source-items-table";
 import { requireAdminUser } from "@/lib/auth/admin";
-import { KnowledgeDocumentRow } from "@/components/knowledge-document-row";
-import {
-  addManualDocument,
-  addUrlDocument,
-  processAllPending,
-  uploadDocument,
-} from "@/lib/actions/knowledge";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { KnowledgeDocument, KnowledgeSource } from "@/lib/types/database";
+import type { Assistant, KnowledgeItem, KnowledgeSource } from "@/lib/types/database";
+import type { AssistantSource } from "@/lib/types/supabase-database";
 
 export default async function KnowledgeSourceDetailPage({
   params,
@@ -26,8 +20,6 @@ export default async function KnowledgeSourceDetailPage({
   await requireAdminUser();
   const { id } = await params;
   const query = await searchParams;
-  const flashError = query.error?.trim();
-  const flashNotice = query.notice?.trim();
   const supabase = createAdminClient();
 
   const { data: sourceRow } = await supabase
@@ -37,14 +29,31 @@ export default async function KnowledgeSourceDetailPage({
     .maybeSingle();
 
   const source = sourceRow as KnowledgeSource | null;
-
   if (!source) notFound();
 
-  const { data: documents } = await supabase
+  const { data: items } = await supabase
     .from("knowledge_documents")
     .select("*")
     .eq("knowledge_source_id", id)
-    .order("created_at", { ascending: false });
+    .order("updated_at", { ascending: false });
+
+  const { data: links } = await supabase
+    .from("assistant_sources")
+    .select("assistant_id")
+    .eq("knowledge_source_id", id);
+
+  const assistantIds = ((links ?? []) as AssistantSource[]).map((l) => l.assistant_id);
+  let attachedAssistants: Pick<Assistant, "id" | "internal_name" | "slug">[] = [];
+  if (assistantIds.length > 0) {
+    const { data: assistantRows } = await supabase
+      .from("assistants")
+      .select("id, internal_name, slug")
+      .in("id", assistantIds);
+    attachedAssistants = (assistantRows ?? []) as Pick<
+      Assistant,
+      "id" | "internal_name" | "slug"
+    >[];
+  }
 
   return (
     <AdminShell
@@ -52,84 +61,39 @@ export default async function KnowledgeSourceDetailPage({
       title={source.name}
       description={source.description ?? undefined}
     >
-      {flashError ? (
-        <p
-          role="alert"
-          className="mb-6 rounded-2xl bg-danger-bg px-5 py-4 text-[15px] text-danger"
-        >
-          {flashError}
+      {query.error ? (
+        <p role="alert" className="mb-6 rounded-2xl bg-danger-bg px-5 py-4 text-[15px] text-danger">
+          {query.error}
         </p>
       ) : null}
-      {flashNotice ? (
-        <p className="mb-6 rounded-2xl bg-warn-bg px-5 py-4 text-[15px] text-warn">
-          {flashNotice}
-        </p>
+      {query.notice ? (
+        <p className="mb-6 rounded-2xl bg-warn-bg px-5 py-4 text-[15px] text-warn">{query.notice}</p>
       ) : null}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">Tekst toevoegen</h2>
-          <form action={addManualDocument.bind(null, id)} className="mt-4 space-y-3">
-            <Input name="title" placeholder="Titel" />
-            <Textarea
-              name="text"
-              required
-              rows={8}
-              placeholder="Plak FAQ- of policy-tekst…"
-            />
-            <Button type="submit">Opslaan & verwerken</Button>
-          </form>
-        </section>
 
-        <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">Bestand uploaden</h2>
-          <p className="mt-1 text-xs text-stone">PDF, .txt of .md — max 8MB</p>
-          <form action={uploadDocument.bind(null, id)} className="mt-4 space-y-3">
-            <input
-              name="file"
-              type="file"
-              accept=".pdf,.txt,.md,text/plain,text/markdown,application/pdf"
-              className="text-[15px] text-muted"
-            />
-            <Button type="submit">Upload & verwerken</Button>
-          </form>
-        </section>
-
-        <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">URL toevoegen</h2>
-          <p className="mt-1 text-xs text-stone">
-            Publieke link naar PDF/tekst, Google Doc of Google Sheet (iedereen met de link).
-          </p>
-          <form action={addUrlDocument.bind(null, id)} className="mt-4 space-y-3">
-            <Input name="title" placeholder="Titel (optioneel)" />
-            <Input
-              name="url"
-              type="url"
-              required
-              placeholder="https://…"
-              autoComplete="url"
-            />
-            <Button type="submit">Ophalen & verwerken</Button>
-          </form>
-        </section>
-      </div>
-
-      <section className="card-surface mt-6 p-5 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-lg font-bold text-ink">Documenten</h2>
-          <form action={processAllPending.bind(null, id)}>
-            <Button type="submit" variant="secondary" size="sm">
-              Verwerk pending
-            </Button>
-          </form>
-        </div>
-        <ul className="mt-4 divide-y divide-ink/5">
-          {(documents as KnowledgeDocument[] | null)?.map((doc) => (
-            <KnowledgeDocumentRow key={doc.id} doc={doc} sourceId={id} />
+      <section className="card-surface mb-6 p-5 sm:p-6">
+        <h2 className="font-display text-lg font-bold text-ink">Gekoppelde assistenten</h2>
+        <ul className="mt-3 space-y-1 text-[15px]">
+          {attachedAssistants.map((a) => (
+            <li key={a.id}>
+              <Link href={`/assistants/${a.id}`} className="text-forest hover:underline">
+                {a.internal_name}
+              </Link>
+              <span className="text-xs text-stone"> · {a.slug}</span>
+            </li>
           ))}
-          {!documents?.length ? (
-            <li className="py-4 text-muted">Nog geen documenten.</li>
+          {!attachedAssistants.length ? (
+            <li className="text-muted">Nog niet gekoppeld aan een assistant.</li>
           ) : null}
         </ul>
+      </section>
+
+      <AddKnowledgePanel sourceId={id} />
+
+      <section className="card-surface mt-6 p-5 sm:p-6">
+        <h2 className="font-display text-lg font-bold text-ink">Kennisitems</h2>
+        <div className="mt-4">
+          <SourceItemsTable sourceId={id} items={(items ?? []) as KnowledgeItem[]} />
+        </div>
       </section>
     </AdminShell>
   );

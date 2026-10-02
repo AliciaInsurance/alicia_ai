@@ -1,10 +1,8 @@
 import { lookup } from "dns/promises";
 import { isIP } from "net";
-import type { DocumentSourceType } from "@/lib/types/database";
-import { ingestPdfBuffer } from "@/lib/knowledge/ingest-pdf";
-import { PDF_LIMITS } from "@/lib/knowledge/pdf-limits";
+import { MAX_KNOWLEDGE_FILE_BYTES } from "@/lib/knowledge/constants";
+import { extractDocumentBuffer } from "@/lib/knowledge/extract-document";
 
-const MAX_BYTES = PDF_LIMITS.maxFileBytes;
 const FETCH_TIMEOUT_MS = 45_000;
 
 const BLOCKED_HOSTNAMES = new Set([
@@ -15,18 +13,15 @@ const BLOCKED_HOSTNAMES = new Set([
   "0.0.0.0",
 ]);
 
-export type FetchedUrlContent = {
+export type WebFetchKind = "html" | "document" | "text" | "unsupported";
+
+export type FetchedWebContent = {
+  kind: WebFetchKind;
   text: string;
   title: string;
-  mimeType: string | null;
-  sourceType: DocumentSourceType;
+  contentType: string | null;
   resolvedUrl: string;
-  pdfBuffer?: Buffer;
-  pdfIngest?: Awaited<ReturnType<typeof ingestPdfBuffer>>;
-};
-
-export type FetchUrlOptions = {
-  retainPdfBuffer?: boolean;
+  unsupportedMessage?: string;
 };
 
 function isPrivateIpv4(ip: string): boolean {
@@ -97,7 +92,6 @@ export async function assertSafeFetchUrl(rawUrl: string): Promise<URL> {
 type ResolvedFetchTarget = {
   fetchUrl: string;
   titleHint: string;
-  sourceTypeHint: DocumentSourceType;
 };
 
 export function resolveFetchTarget(inputUrl: URL): ResolvedFetchTarget {
@@ -106,45 +100,29 @@ export function resolveFetchTarget(inputUrl: URL): ResolvedFetchTarget {
 
   const docMatch = path.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
   if (host.endsWith("docs.google.com") && docMatch) {
-    const id = docMatch[1];
     return {
-      fetchUrl: `https://docs.google.com/document/d/${id}/export?format=txt`,
+      fetchUrl: `https://docs.google.com/document/d/${docMatch[1]}/export?format=txt`,
       titleHint: "Google Doc",
-      sourceTypeHint: "text",
     };
   }
 
   const sheetMatch = path.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (host.endsWith("docs.google.com") && sheetMatch) {
-    const id = sheetMatch[1];
     return {
-      fetchUrl: `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`,
+      fetchUrl: `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=csv`,
       titleHint: "Google Sheet",
-      sourceTypeHint: "text",
     };
   }
 
   const driveFileMatch = path.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
   if (host.endsWith("drive.google.com") && driveFileMatch) {
-    const id = driveFileMatch[1];
     return {
-      fetchUrl: `https://drive.google.com/uc?export=download&id=${id}`,
+      fetchUrl: `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`,
       titleHint: "Google Drive-bestand",
-      sourceTypeHint: "pdf",
     };
   }
 
-  const lowerPath = path.toLowerCase();
-  let sourceTypeHint: DocumentSourceType = "text";
-  if (lowerPath.endsWith(".pdf")) sourceTypeHint = "pdf";
-  else if (lowerPath.endsWith(".md")) sourceTypeHint = "markdown";
-  else if (lowerPath.endsWith(".txt")) sourceTypeHint = "text";
-
-  return {
-    fetchUrl: inputUrl.toString(),
-    titleHint: inputUrl.hostname,
-    sourceTypeHint,
-  };
+  return { fetchUrl: inputUrl.toString(), titleHint: inputUrl.hostname };
 }
 
 function htmlToPlainText(html: string): string {
@@ -174,24 +152,11 @@ function titleFromHtml(html: string, fallback: string): string {
   return match[1].replace(/\s+/g, " ").trim().slice(0, 200) || fallback;
 }
 
-function detectSourceTypeFromMime(
-  mimeType: string | null,
-  hint: DocumentSourceType,
-): DocumentSourceType {
-  if (!mimeType) return hint;
-  const lower = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (lower === "application/pdf") return "pdf";
-  if (lower === "text/markdown") return "markdown";
-  if (lower.startsWith("text/")) return "text";
-  if (lower === "application/json") return "text";
-  return hint;
-}
-
 async function readResponseBody(response: Response): Promise<Buffer> {
   const reader = response.body?.getReader();
   if (!reader) {
     const buf = Buffer.from(await response.arrayBuffer());
-    if (buf.length > MAX_BYTES) {
+    if (buf.length > MAX_KNOWLEDGE_FILE_BYTES) {
       throw new Error("Antwoord is groter dan 8MB");
     }
     return buf;
@@ -204,7 +169,7 @@ async function readResponseBody(response: Response): Promise<Buffer> {
     if (done) break;
     if (!value) continue;
     total += value.length;
-    if (total > MAX_BYTES) {
+    if (total > MAX_KNOWLEDGE_FILE_BYTES) {
       throw new Error("Antwoord is groter dan 8MB");
     }
     chunks.push(value);
@@ -212,10 +177,7 @@ async function readResponseBody(response: Response): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export async function fetchUrlContent(
-  rawUrl: string,
-  options: FetchUrlOptions = {},
-): Promise<FetchedUrlContent> {
+export async function fetchWebContent(rawUrl: string): Promise<FetchedWebContent> {
   const inputUrl = await assertSafeFetchUrl(rawUrl);
   const target = resolveFetchTarget(inputUrl);
   const fetchUrlParsed = await assertSafeFetchUrl(target.fetchUrl);
@@ -228,7 +190,7 @@ export async function fetchUrlContent(
       signal: controller.signal,
       redirect: "follow",
       headers: {
-        Accept: "text/html,application/pdf,text/plain,text/markdown,*/*",
+        Accept: "text/html,application/pdf,text/plain,text/markdown,text/csv,*/*",
         "User-Agent": "Alicia-Knowledge-Ingest/1.0",
       },
     });
@@ -242,53 +204,81 @@ export async function fetchUrlContent(
       throw new Error(`Download mislukt (HTTP ${response.status})`);
     }
 
-    const mimeType = response.headers.get("content-type");
+    const contentType = response.headers.get("content-type");
     const buffer = await readResponseBody(response);
     if (buffer.length === 0) {
       throw new Error("Lege inhoud ontvangen van URL");
     }
 
+    const mime = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
     const isPdfFile =
       buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "%PDF";
-    const sourceType = isPdfFile
-      ? "pdf"
-      : detectSourceTypeFromMime(mimeType, target.sourceTypeHint);
-    let text: string;
     let title = target.titleHint;
-    let pdfIngest: FetchedUrlContent["pdfIngest"];
-    let pdfBuffer: Buffer | undefined;
 
-    if (sourceType === "pdf") {
-      pdfIngest = await ingestPdfBuffer(buffer);
-      text = pdfIngest.text;
-      if (options.retainPdfBuffer) {
-        pdfBuffer = buffer;
+    if (isPdfFile || mime === "application/pdf") {
+      const extracted = await extractDocumentBuffer(buffer, "pdf");
+      if (!extracted.ok) {
+        return {
+          kind: "unsupported",
+          text: "",
+          title,
+          contentType,
+          resolvedUrl: fetchUrlParsed.toString(),
+          unsupportedMessage: extracted.message,
+        };
       }
-    } else if (mimeType?.toLowerCase().includes("text/html")) {
+      return {
+        kind: "document",
+        text: extracted.text,
+        title,
+        contentType: contentType ?? "application/pdf",
+        resolvedUrl: fetchUrlParsed.toString(),
+      };
+    }
+
+    if (mime.includes("text/html") || mime === "") {
       const html = buffer.toString("utf8");
       if (/accounts\.google\.com|ServiceLogin|signin/i.test(html)) {
         throw new Error(
           "Google vraagt om inloggen. Deel het document publiek (iedereen met de link) en probeer opnieuw.",
         );
       }
-      text = htmlToPlainText(html);
+      const text = htmlToPlainText(html);
       title = titleFromHtml(html, title);
-    } else {
-      text = buffer.toString("utf8").trim();
+      if (!text) throw new Error("Geen leesbare tekst op deze webpagina.");
+      return {
+        kind: "html",
+        text,
+        title,
+        contentType,
+        resolvedUrl: fetchUrlParsed.toString(),
+      };
     }
 
-    if (!text.trim()) {
-      throw new Error("Geen tekst uit deze URL gehaald");
+    if (
+      mime.startsWith("text/") ||
+      mime === "application/json" ||
+      mime === "text/csv" ||
+      fetchUrlParsed.pathname.toLowerCase().endsWith(".md")
+    ) {
+      const text = buffer.toString("utf8").trim();
+      if (!text) throw new Error("Geen tekst uit URL gehaald.");
+      return {
+        kind: "text",
+        text,
+        title,
+        contentType,
+        resolvedUrl: fetchUrlParsed.toString(),
+      };
     }
 
     return {
-      text: text.trim(),
+      kind: "unsupported",
+      text: "",
       title,
-      mimeType,
-      sourceType: sourceType === "pdf" || sourceType === "markdown" ? sourceType : "url",
+      contentType,
       resolvedUrl: fetchUrlParsed.toString(),
-      pdfBuffer,
-      pdfIngest,
+      unsupportedMessage: `Content-Type niet ondersteund: ${mime || "onbekend"}`,
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {

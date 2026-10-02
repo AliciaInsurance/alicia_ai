@@ -78,7 +78,7 @@ Same architecture as **Gold** and **Kalinda**: Google OAuth → Auth.js JWT sess
 
 Function: `alicia_ai.match_knowledge_chunks` — cosine similarity search scoped to source IDs.
 
-Seed migration creates **BAV Sales** demo assistant + **DEMO — BAV FAQ** (fake content only).
+Seed migration creates **BAV Sales** demo assistant + widget only (demo FAQ knowledge is removed by later migrations).
 
 ## Local development
 
@@ -106,31 +106,32 @@ npm run test:knowledge
 3. Open the assistant → **General** / **Personality** → save.
 4. Set status to **active** (or use Activate).
 
-### Add knowledge
+### Knowledge model (sources + items)
 
-1. **Knowledge** → create a source, or use **Assistants → Knowledge → Attach**.
-2. Open the source → add manual text, upload PDF/txt/md, or paste a **public URL** (PDF, txt, Google Doc/Sheet, etc.).
-3. Processing runs server-side; status moves to **ready** (or **failed** / **awaiting_review** for scanned PDFs).
+**Knowledge sources** are reusable collections (e.g. “BAV Product Knowledge”). **Assistants attach to sources**, not individual items.
 
-#### PDF ingestion (text layer + scanned fallback)
+Each source holds **knowledge items** of four types:
 
-1. **Text-layer PDFs** — `pdf-parse` extracts copyable text; quality heuristics (character count, letters per page, whitespace ratio, replacement characters) must pass. No human review; chunks + embeddings run automatically.
-2. **Scanned / image-only PDFs** — when text extraction is insufficient, Alicia runs **server-side vision extraction** (OpenAI, default model `gpt-4o`, override with `ALICIA_PDF_VISION_MODEL`). Pages are split with `pdf-lib` and transcribed page-by-page with a strict *transcription-only* prompt (preserve legal wording; mark unreadable sections as `[ONLEESBAAR]`).
-3. **Human review** — vision-extracted PDFs stay in **`awaiting_review`** until an admin approves the extracted text on the knowledge source page. **No chunks are embedded or retrievable until approval.**
-4. **Page provenance** — vision output uses `--- Pagina N ---` markers; chunks store `page_from` / `page_to`. Chat message metadata stores `document_id` and page range (not customer-visible citations in v0.1).
+| Type | Use for |
+|------|---------|
+| **Tekst** (`manual_text`) | FAQ, handmatige uitleg, correcties |
+| **Bestand** (`document`) | PDF (tekstlaag), TXT, MD — polisvoorwaarden, IPID, clauses |
+| **Link** (`web`) | Eén publieke URL → HTML-tekst of PDF via document-pipeline |
+| **Data** (`structured_data`) | CSV/JSON — beroepenlijsten, matrices (rijen + fallback-tekst voor RAG) |
 
-**Synchronous limits (v0.1, no background queue):**
+**Flow:** toevoegen → verwerken (chunk/embed waar nodig) → preview → **Goedkeuren** → actief in retrieval.
 
-| Limit | Value |
-|-------|--------|
-| Max PDF / URL download size | 8 MB |
-| Max pages for vision path | 40 |
-| Per-page vision timeout | 90 s |
-| Total vision budget per document | 12 min |
+- **Review:** `draft` · `pending_review` · `approved` · `rejected` — alleen **`approved`** items worden opgehaald.
+- **Status:** `uploaded` · `processing` · `ready` · `failed` · **`unsupported`** (geen bruikbare PDF-tekstlaag).
+- **Geldigheid:** optioneel `valid_from` / `valid_until` + `version_label`; retrieval negeert expired/toekomstige items.
 
-Oversized documents fail with: *Dit document is te groot voor directe verwerking. Splits het document of voeg background processing toe.*
+**PDFs:** alleen PDF met **selecteerbare tekstlaag** (`pdf-parse` + kwaliteitscheck). Image-only/scans → **`unsupported`** met boodschap om een OCR/tekstversie of handmatige tekst te leveren. **Geen OCR/vision in Ask Alicia.**
 
-Requires **`OPENAI_API_KEY`** with access to the configured vision model.
+**URLs:** SSRF-safe fetch; routing op Content-Type — HTML → leesbare tekst, PDF → document-pipeline, plain/markdown → tekst; overige types → duidelijke afwijzing. Geen site-crawl.
+
+**Structured data:** rijen in `knowledge_structured_rows` (jsonb per rij) + searchable tekstrepresentatie voor pgvector; bedoeld voor latere deterministische lookup.
+
+Max upload/URL-grootte: **8 MB** (synchroon in request).
 
 ### Test chat
 
@@ -186,8 +187,9 @@ Admin authorization remains server-side (`requireAdminUser()` in layouts + Auth.
 ## Known limitations / tech debt
 
 - Rate limiting is in-process and suitable for **local development only** — not shared across Vercel instances; do not treat it as production-ready.
-- Document processing is synchronous in the upload/URL request (including multi-page vision extraction within the limits above).
-- Scanned PDFs require admin approval before embeddings; side-by-side PDF preview is not implemented yet.
+- Document processing is synchronous in the upload/URL request (within size limits).
+- No OCR for scanned PDFs; admins must supply text-layer PDFs or manual text.
+- Knowledge requires explicit approval before RAG retrieval uses it.
 - Widget styling hooks exist in DB but minimal UI theming in v0.1.
 - No Supabase Storage yet — extracted text stored in `knowledge_documents.raw_text`.
 - Custom schema + pgvector operator paths may need tweaking per Supabase project (see migration comments).

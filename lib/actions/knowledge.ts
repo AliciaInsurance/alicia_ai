@@ -3,24 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/admin";
-import {
-  applyTextFields,
-  buildDocumentFieldsFromIngest,
-  extractPdfForDocument,
-} from "@/lib/knowledge/document-extraction";
+import { UNSUPPORTED_PDF_MESSAGE } from "@/lib/knowledge/constants";
+import { extractDocumentBuffer } from "@/lib/knowledge/extract-document";
 import {
   assertFileSize,
-  detectSourceType,
-  extractTextFromBuffer,
+  detectFileFormat,
   hashContent,
+  parseOptionalDate,
   sanitizeFilename,
 } from "@/lib/knowledge/extract";
-import { fetchUrlContent } from "@/lib/knowledge/fetch-url";
-import { ingestPdfBuffer } from "@/lib/knowledge/ingest-pdf";
-import { processDocument, processPendingDocumentsForSource } from "@/lib/knowledge/process-document";
-import { refreshUrlDocumentContent } from "@/lib/knowledge/refresh-url-document";
+import { fetchWebContent } from "@/lib/knowledge/fetch-web";
+import { parseCsvBuffer, parseJsonBuffer } from "@/lib/knowledge/parse-structured";
+import { processKnowledgeItem } from "@/lib/knowledge/process-item";
+import { refreshWebKnowledgeItem } from "@/lib/knowledge/refresh-web-item";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { KnowledgeDocument } from "@/lib/types/database";
+import type { KnowledgeItem } from "@/lib/types/database";
 
 function slugify(value: string): string {
   return value
@@ -30,25 +27,35 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function redirectWithKnowledgeNotice(
+function itemPath(sourceId: string, itemId: string) {
+  return `/knowledge-sources/${sourceId}/items/${itemId}`;
+}
+
+function redirectItemNotice(
   sourceId: string,
+  itemId: string,
   kind: "error" | "notice",
   message: string,
 ): never {
   const params = new URLSearchParams({ [kind]: message });
+  redirect(`${itemPath(sourceId, itemId)}?${params.toString()}`);
+}
+
+function redirectSourceNotice(sourceId: string, kind: "error" | "notice", message: string): never {
+  const params = new URLSearchParams({ [kind]: message });
   redirect(`/knowledge-sources/${sourceId}?${params.toString()}`);
 }
 
-async function markExtractionFailed(documentId: string, message: string) {
-  const supabase = createAdminClient();
-  await supabase
-    .from("knowledge_documents")
-    .update({
-      status: "failed",
-      error_message: message.slice(0, 2000),
-      extraction_quality: "failed",
-    })
-    .eq("id", documentId);
+function metadataFromForm(formData: FormData) {
+  return {
+    category: String(formData.get("category") ?? "").trim() || null,
+    owner: String(formData.get("owner") ?? "").trim() || null,
+    version_label: String(formData.get("version_label") ?? "").trim() || null,
+    product: String(formData.get("product") ?? "").trim() || null,
+    document_type: String(formData.get("document_type") ?? "").trim() || null,
+    valid_from: parseOptionalDate(String(formData.get("valid_from") ?? "")),
+    valid_until: parseOptionalDate(String(formData.get("valid_until") ?? "")),
+  };
 }
 
 export async function createKnowledgeSource(formData: FormData) {
@@ -91,384 +98,351 @@ export async function detachSourceFromAssistant(assistantId: string, sourceId: s
   revalidatePath(`/assistants/${assistantId}`);
 }
 
-export async function addManualDocument(sourceId: string, formData: FormData) {
+export async function addManualTextItem(sourceId: string, formData: FormData) {
   await requireAdminUser();
-  const title = String(formData.get("title") ?? "Manual entry").trim();
+  const title = String(formData.get("title") ?? "").trim() || "Tekst";
   const text = String(formData.get("text") ?? "").trim();
-  if (!text) redirectWithKnowledgeNotice(sourceId, "error", "Tekst is verplicht.");
+  const saveAsDraft = formData.get("save_as_draft") === "on";
+  if (!text) redirectSourceNotice(sourceId, "error", "Tekst is verplicht.");
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("knowledge_documents")
+    .insert({
+      knowledge_source_id: sourceId,
+      title,
+      knowledge_type: "manual_text",
+      source_type: "manual",
+      status: "uploaded",
+      review_status: saveAsDraft ? "draft" : "pending_review",
+      raw_text: text,
+      content_hash: hashContent(text),
+      ...metadataFromForm(formData),
+    })
+    .select("id")
+    .single();
+
+  if (error) redirectSourceNotice(sourceId, "error", error.message);
+
+  if (!saveAsDraft) {
+    const processed = await processKnowledgeItem(data.id);
+    if (!processed.ok) {
+      redirectItemNotice(sourceId, data.id, "notice", processed.error);
+    }
+  }
+
+  revalidatePath(`/knowledge-sources/${sourceId}`);
+  redirect(itemPath(sourceId, data.id));
+}
+
+export async function uploadDocumentItem(sourceId: string, formData: FormData) {
+  await requireAdminUser();
+  const fileEntry = formData.get("file");
+  if (!(fileEntry instanceof File)) {
+    redirectSourceNotice(sourceId, "error", "Kies een bestand.");
+  }
+
+  const supabase = createAdminClient();
+  try {
+    assertFileSize(fileEntry.size);
+    const filename = sanitizeFilename(fileEntry.name);
+    const format = detectFileFormat(fileEntry.type, filename);
+    if (!format || !["pdf", "text", "markdown"].includes(format)) {
+      redirectSourceNotice(sourceId, "error", "Alleen PDF, TXT of MD.");
+    }
+
+    const buffer = Buffer.from(await fileEntry.arrayBuffer());
+    const meta = metadataFromForm(formData);
+    const title = String(formData.get("title") ?? "").trim() || filename;
+
+    if (format === "pdf" || format === "text" || format === "markdown") {
+      const extracted = await extractDocumentBuffer(
+        buffer,
+        format === "pdf" ? "pdf" : format === "markdown" ? "markdown" : "text",
+      );
+
+      if (!extracted.ok) {
+        const { data: unsupportedRow } = await supabase
+          .from("knowledge_documents")
+          .insert({
+            knowledge_source_id: sourceId,
+            title,
+            filename,
+            mime_type: fileEntry.type || null,
+            knowledge_type: "document",
+            source_type: format,
+            status: "unsupported",
+            review_status: "pending_review",
+            error_message: extracted.message,
+            ...meta,
+          })
+          .select("id")
+          .single();
+        revalidatePath(`/knowledge-sources/${sourceId}`);
+        redirect(itemPath(sourceId, unsupportedRow!.id));
+      }
+
+      const { data, error } = await supabase
+        .from("knowledge_documents")
+        .insert({
+          knowledge_source_id: sourceId,
+          title,
+          filename,
+          mime_type: fileEntry.type || null,
+          content_type: fileEntry.type || null,
+          knowledge_type: "document",
+          source_type: format,
+          status: "uploaded",
+          review_status: "pending_review",
+          raw_text: extracted.text,
+          content_hash: hashContent(extracted.text),
+          ...meta,
+        })
+        .select("id")
+        .single();
+
+      if (error) redirectSourceNotice(sourceId, "error", error.message);
+      const processed = await processKnowledgeItem(data.id);
+      revalidatePath(`/knowledge-sources/${sourceId}`);
+      if (!processed.ok) redirectItemNotice(sourceId, data.id, "notice", processed.error);
+      redirect(itemPath(sourceId, data.id));
+    }
+
+    redirectSourceNotice(sourceId, "error", "Bestandstype niet ondersteund.");
+  } catch (err) {
+    if (err && typeof err === "object" && "digest" in err) throw err;
+    const message = err instanceof Error ? err.message : "Upload mislukt";
+    redirectSourceNotice(sourceId, "error", message);
+  }
+}
+
+export async function addWebItem(sourceId: string, formData: FormData) {
+  await requireAdminUser();
+  const url = String(formData.get("url") ?? "").trim();
+  if (!url) redirectSourceNotice(sourceId, "error", "URL is verplicht.");
+
+  const supabase = createAdminClient();
+  try {
+    const fetched = await fetchWebContent(url);
+    const title = String(formData.get("title") ?? "").trim() || fetched.title || url;
+    const now = new Date().toISOString();
+    const meta = metadataFromForm(formData);
+
+    if (fetched.kind === "unsupported") {
+      const { data, error } = await supabase
+        .from("knowledge_documents")
+        .insert({
+          knowledge_source_id: sourceId,
+          title,
+          knowledge_type: "web",
+          source_type: "url",
+          source_url: url,
+          content_type: fetched.contentType,
+          fetched_at: now,
+          last_refresh_at: now,
+          status: "unsupported",
+          review_status: "pending_review",
+          error_message: fetched.unsupportedMessage ?? UNSUPPORTED_PDF_MESSAGE,
+          ...meta,
+        })
+        .select("id")
+        .single();
+      if (error) redirectSourceNotice(sourceId, "error", error.message);
+      revalidatePath(`/knowledge-sources/${sourceId}`);
+      redirect(itemPath(sourceId, data.id));
+    }
+
+    const knowledge_type = fetched.kind === "html" ? "web" : "document";
+
+    const { data, error } = await supabase
+      .from("knowledge_documents")
+      .insert({
+        knowledge_source_id: sourceId,
+        title,
+        knowledge_type,
+        source_type: "url",
+        source_url: url,
+        content_type: fetched.contentType,
+        fetched_at: now,
+        last_refresh_at: now,
+        status: "uploaded",
+        review_status: "pending_review",
+        raw_text: fetched.text,
+        content_hash: hashContent(fetched.text),
+        ...meta,
+      })
+      .select("id")
+      .single();
+
+    if (error) redirectSourceNotice(sourceId, "error", error.message);
+
+    const processed = await processKnowledgeItem(data.id);
+    revalidatePath(`/knowledge-sources/${sourceId}`);
+    if (!processed.ok) redirectItemNotice(sourceId, data.id, "notice", processed.error);
+    redirect(itemPath(sourceId, data.id));
+  } catch (err) {
+    if (err && typeof err === "object" && "digest" in err) throw err;
+    const message = err instanceof Error ? err.message : "URL toevoegen mislukt";
+    redirectSourceNotice(sourceId, "error", message);
+  }
+}
+
+export async function uploadStructuredDataItem(sourceId: string, formData: FormData) {
+  await requireAdminUser();
+  const fileEntry = formData.get("file");
+  if (!(fileEntry instanceof File)) {
+    redirectSourceNotice(sourceId, "error", "Kies een CSV- of JSON-bestand.");
+  }
 
   try {
+    assertFileSize(fileEntry.size);
+    const filename = sanitizeFilename(fileEntry.name);
+    const format = detectFileFormat(fileEntry.type, filename);
+    if (!format || (format !== "csv" && format !== "json")) {
+      redirectSourceNotice(sourceId, "error", "Alleen CSV of JSON.");
+    }
+
+    const buffer = Buffer.from(await fileEntry.arrayBuffer());
+    const structured =
+      format === "csv" ? parseCsvBuffer(buffer) : parseJsonBuffer(buffer);
+    const title = String(formData.get("title") ?? "").trim() || filename;
+
     const supabase = createAdminClient();
     const { data, error } = await supabase
       .from("knowledge_documents")
       .insert({
         knowledge_source_id: sourceId,
         title,
-        source_type: "manual",
-        status: "uploaded",
-        raw_text: text,
-        content_hash: hashContent(text),
-        extraction_review_status: "not_required",
-      })
-      .select("id")
-      .single();
-
-    if (error) redirectWithKnowledgeNotice(sourceId, "error", error.message);
-
-    const processed = await processDocument(data.id);
-    revalidatePath(`/knowledge-sources/${sourceId}`);
-    if (!processed.ok) {
-      redirectWithKnowledgeNotice(
-        sourceId,
-        "notice",
-        `Opgeslagen, maar verwerken mislukt: ${processed.error}`,
-      );
-    }
-  } catch (err) {
-    if (err && typeof err === "object" && "digest" in err) throw err;
-    const message = err instanceof Error ? err.message : "Opslaan mislukt";
-    console.error("[addManualDocument]", err);
-    redirectWithKnowledgeNotice(sourceId, "error", message);
-  }
-}
-
-export async function uploadDocument(sourceId: string, formData: FormData) {
-  await requireAdminUser();
-  const fileEntry = formData.get("file");
-  if (!(fileEntry instanceof File)) {
-    redirectWithKnowledgeNotice(sourceId, "error", "Kies een bestand om te uploaden.");
-  }
-  const file = fileEntry;
-
-  const supabase = createAdminClient();
-  let documentId: string | null = null;
-
-  try {
-    assertFileSize(file.size);
-    const filename = sanitizeFilename(file.name);
-    const sourceType = detectSourceType(file.type, filename);
-    if (!sourceType) {
-      redirectWithKnowledgeNotice(sourceId, "error", "Bestandstype niet ondersteund (PDF, txt, md).");
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    const { data: created, error: createError } = await supabase
-      .from("knowledge_documents")
-      .insert({
-        knowledge_source_id: sourceId,
-        title: filename,
         filename,
-        mime_type: file.type || null,
-        source_type: sourceType,
-        status: sourceType === "pdf" ? "extracting" : "uploaded",
-        extraction_review_status: "not_required",
-        source_pdf_bytea: sourceType === "pdf" ? buffer : null,
+        mime_type: fileEntry.type || null,
+        content_type: fileEntry.type || null,
+        knowledge_type: "structured_data",
+        source_type: format,
+        status: "uploaded",
+        review_status: "pending_review",
+        structured_data: structured,
+        ...metadataFromForm(formData),
       })
       .select("id")
       .single();
 
-    if (createError) redirectWithKnowledgeNotice(sourceId, "error", createError.message);
-    documentId = created.id;
+    if (error) redirectSourceNotice(sourceId, "error", error.message);
 
-    let insertUpdate: Record<string, unknown>;
-
-    if (sourceType === "pdf") {
-      const ingest = await ingestPdfBuffer(buffer);
-      const applied = buildDocumentFieldsFromIngest(ingest, "initial", "uploaded");
-      insertUpdate = applyTextFields(applied);
-    } else {
-      const text = await extractTextFromBuffer(buffer, sourceType);
-      if (!text) redirectWithKnowledgeNotice(sourceId, "error", "Geen tekst uit dit bestand gehaald.");
-      insertUpdate = {
-        status: "uploaded",
-        raw_text: text,
-        content_hash: hashContent(text),
-        extraction_review_status: "not_required",
-      };
-    }
-
-    const { error: updateError } = await supabase
-      .from("knowledge_documents")
-      .update(insertUpdate)
-      .eq("id", documentId);
-
-    if (updateError) redirectWithKnowledgeNotice(sourceId, "error", updateError.message);
-
-    const uploadedDocId = documentId;
-    if (!uploadedDocId) redirectWithKnowledgeNotice(sourceId, "error", "Document kon niet worden aangemaakt.");
-
-    const requiresReview = insertUpdate.status === "awaiting_review";
-    if (!requiresReview) {
-      const processed = await processDocument(uploadedDocId);
-      revalidatePath(`/knowledge-sources/${sourceId}`);
-      if (!processed.ok) {
-        redirectWithKnowledgeNotice(
-          sourceId,
-          "notice",
-          `Bestand opgeslagen; embeddings mislukt: ${processed.error}. Controleer OPENAI_API_KEY en vector/DB.`,
-        );
-      }
-      return;
-    }
-
+    const processed = await processKnowledgeItem(data.id);
     revalidatePath(`/knowledge-sources/${sourceId}`);
-    redirectWithKnowledgeNotice(
-      sourceId,
-      "notice",
-      "PDF geëxtraheerd met vision — controleer de tekst en keur goed voordat deze in de assistent komt.",
-    );
+    if (!processed.ok) redirectItemNotice(sourceId, data.id, "notice", processed.error);
+    redirect(itemPath(sourceId, data.id));
   } catch (err) {
-    if (documentId) {
-      const message = err instanceof Error ? err.message : "Upload mislukt";
-      await markExtractionFailed(documentId, message);
-    }
     if (err && typeof err === "object" && "digest" in err) throw err;
     const message = err instanceof Error ? err.message : "Upload mislukt";
-    console.error("[uploadDocument]", err);
-    redirectWithKnowledgeNotice(sourceId, "error", message);
+    redirectSourceNotice(sourceId, "error", message);
   }
 }
 
-export async function addUrlDocument(sourceId: string, formData: FormData) {
+export async function updateKnowledgeItem(itemId: string, sourceId: string, formData: FormData) {
   await requireAdminUser();
-  const url = String(formData.get("url") ?? "").trim();
-  const titleOverride = String(formData.get("title") ?? "").trim();
-  if (!url) redirectWithKnowledgeNotice(sourceId, "error", "URL is verplicht.");
+  const title = String(formData.get("title") ?? "").trim();
+  const text = String(formData.get("text") ?? "").trim();
 
   const supabase = createAdminClient();
-  let documentId: string | null = null;
+  const payload: Record<string, unknown> = {
+    title: title || undefined,
+    ...metadataFromForm(formData),
+  };
 
-  try {
-    const { data: created, error: createError } = await supabase
-      .from("knowledge_documents")
-      .insert({
-        knowledge_source_id: sourceId,
-        title: titleOverride || url,
-        source_type: "url",
-        source_url: url,
-        status: "extracting",
-        extraction_review_status: "not_required",
-      })
-      .select("id")
-      .single();
-
-    if (createError) redirectWithKnowledgeNotice(sourceId, "error", createError.message);
-    documentId = created.id;
-
-    const fetched = await fetchUrlContent(url, { retainPdfBuffer: true });
-    const title = titleOverride || fetched.title || url;
-
-    const applied = fetched.pdfIngest
-      ? buildDocumentFieldsFromIngest(fetched.pdfIngest, "initial", "extracting")
-      : {
-          text: fetched.text,
-          pendingText: null as string | null,
-          status: "uploaded" as const,
-          fields: {
-            extraction_method: null,
-            extraction_quality: null,
-            extraction_reason: null,
-            page_count: null,
-            extraction_review_status: "not_required",
-            error_message: null,
-          },
-        };
-
-    const { error: updateError } = await supabase
-      .from("knowledge_documents")
-      .update({
-        title,
-        mime_type: fetched.mimeType,
-        source_pdf_bytea: fetched.pdfBuffer ?? null,
-        ...applyTextFields(applied),
-      })
-      .eq("id", documentId);
-
-    if (updateError) redirectWithKnowledgeNotice(sourceId, "error", updateError.message);
-
-    const urlDocId = documentId;
-    if (!urlDocId) redirectWithKnowledgeNotice(sourceId, "error", "Document kon niet worden aangemaakt.");
-
-    if (applied.status === "awaiting_review") {
-      revalidatePath(`/knowledge-sources/${sourceId}`);
-      redirectWithKnowledgeNotice(
-        sourceId,
-        "notice",
-        "PDF van URL geëxtraheerd — controleer de tekst en keur goed.",
-      );
-    }
-
-    const processed = await processDocument(urlDocId);
-    revalidatePath(`/knowledge-sources/${sourceId}`);
-    if (!processed.ok) {
-      redirectWithKnowledgeNotice(
-        sourceId,
-        "notice",
-        `URL opgeslagen; verwerken mislukt: ${processed.error}`,
-      );
-    }
-  } catch (err) {
-    if (documentId) {
-      const message = err instanceof Error ? err.message : "URL toevoegen mislukt";
-      await markExtractionFailed(documentId, message);
-    }
-    if (err && typeof err === "object" && "digest" in err) throw err;
-    const message = err instanceof Error ? err.message : "URL toevoegen mislukt";
-    console.error("[addUrlDocument]", err);
-    redirectWithKnowledgeNotice(sourceId, "error", message);
+  if (text) {
+    payload.raw_text = text;
+    payload.content_hash = hashContent(text);
   }
+
+  const { error } = await supabase.from("knowledge_documents").update(payload).eq("id", itemId);
+  if (error) redirectItemNotice(sourceId, itemId, "error", error.message);
+
+  revalidatePath(itemPath(sourceId, itemId));
+  revalidatePath(`/knowledge-sources/${sourceId}`);
 }
 
-export async function approveDocumentExtraction(documentId: string, sourceId: string) {
+export async function approveKnowledgeItem(itemId: string, sourceId: string) {
   await requireAdminUser();
   const supabase = createAdminClient();
-  const { data: docRow } = await supabase
+
+  const { data: row } = await supabase
     .from("knowledge_documents")
     .select("*")
-    .eq("id", documentId)
+    .eq("id", itemId)
     .single();
 
-  const doc = docRow as KnowledgeDocument | null;
-  if (!doc) redirectWithKnowledgeNotice(sourceId, "error", "Document niet gevonden.");
+  const item = row as KnowledgeItem | null;
+  if (!item) redirectItemNotice(sourceId, itemId, "error", "Item niet gevonden.");
 
-  const text = doc.pending_raw_text?.trim() || doc.raw_text?.trim();
-  if (!text) redirectWithKnowledgeNotice(sourceId, "error", "Geen extractietekst om goed te keuren.");
+  if (item.status !== "ready" && item.status !== "uploaded") {
+    const processed = await processKnowledgeItem(itemId);
+    if (!processed.ok) redirectItemNotice(sourceId, itemId, "notice", processed.error);
+  }
 
   await supabase
     .from("knowledge_documents")
-    .update({
-      raw_text: text,
-      pending_raw_text: null,
-      content_hash: hashContent(text),
-      extraction_review_status: "approved",
-      status: "uploaded",
-      error_message: null,
-    })
-    .eq("id", documentId);
+    .update({ review_status: "approved", status: "ready" })
+    .eq("id", itemId);
 
-  const result = await processDocument(documentId);
+  revalidatePath(itemPath(sourceId, itemId));
   revalidatePath(`/knowledge-sources/${sourceId}`);
-  if (!result.ok) {
-    redirectWithKnowledgeNotice(sourceId, "notice", result.error);
-  }
+  redirectItemNotice(sourceId, itemId, "notice", "Kennisitem goedgekeurd en actief voor retrieval.");
 }
 
-export async function rejectDocumentExtraction(documentId: string, sourceId: string) {
+export async function rejectKnowledgeItem(itemId: string, sourceId: string) {
   await requireAdminUser();
   const supabase = createAdminClient();
-  const { data: docRow } = await supabase
+  await supabase.from("knowledge_chunks").delete().eq("document_id", itemId);
+  await supabase
     .from("knowledge_documents")
-    .select("status, pending_raw_text")
-    .eq("id", documentId)
-    .single();
+    .update({ review_status: "rejected", status: "failed" })
+    .eq("id", itemId);
 
-  const doc = docRow as Pick<KnowledgeDocument, "status" | "pending_raw_text"> | null;
-  if (!doc) redirectWithKnowledgeNotice(sourceId, "error", "Document niet gevonden.");
-
-  if (doc.pending_raw_text && doc.status === "awaiting_review") {
-    await supabase
-      .from("knowledge_documents")
-      .update({
-        pending_raw_text: null,
-        extraction_review_status: "not_required",
-        status: "ready",
-        error_message: null,
-      })
-      .eq("id", documentId);
-  } else {
-    await supabase.from("knowledge_chunks").delete().eq("document_id", documentId);
-    await supabase
-      .from("knowledge_documents")
-      .update({
-        extraction_review_status: "rejected",
-        status: "rejected",
-        pending_raw_text: null,
-        error_message: null,
-      })
-      .eq("id", documentId);
-  }
-
+  revalidatePath(itemPath(sourceId, itemId));
   revalidatePath(`/knowledge-sources/${sourceId}`);
 }
 
-export async function rerunDocumentExtraction(documentId: string, sourceId: string) {
+export async function reprocessKnowledgeItem(itemId: string, sourceId: string) {
   await requireAdminUser();
   const supabase = createAdminClient();
-  const { data: docRow } = await supabase
+  const { data: row } = await supabase
     .from("knowledge_documents")
-    .select("*")
-    .eq("id", documentId)
+    .select("knowledge_type")
+    .eq("id", itemId)
     .single();
 
-  const doc = docRow as KnowledgeDocument | null;
-  if (!doc) redirectWithKnowledgeNotice(sourceId, "error", "Document niet gevonden.");
-
-  try {
-    await supabase
-      .from("knowledge_documents")
-      .update({ status: "extracting", error_message: null })
-      .eq("id", documentId);
-
-    const mode = doc.status === "ready" ? "rerun_keep_ready" : "initial";
-
-    if (doc.source_type === "url" && doc.source_url) {
-      const refreshed = await refreshUrlDocumentContent(documentId);
-      if (!refreshed.ok) {
-        await markExtractionFailed(documentId, refreshed.error);
-        redirectWithKnowledgeNotice(sourceId, "notice", refreshed.error);
-      }
-      revalidatePath(`/knowledge-sources/${sourceId}`);
-      if (refreshed.doc.status === "uploaded") {
-        const result = await processDocument(documentId);
-        if (!result.ok) redirectWithKnowledgeNotice(sourceId, "notice", result.error);
-      }
-      return;
-    }
-
-    if (doc.source_type === "pdf" || doc.mime_type === "application/pdf") {
-      const applied = await extractPdfForDocument(doc, mode);
-      await supabase
-        .from("knowledge_documents")
-        .update(applyTextFields(applied))
-        .eq("id", documentId);
-
-      revalidatePath(`/knowledge-sources/${sourceId}`);
-      if (applied.status === "awaiting_review") {
-        redirectWithKnowledgeNotice(sourceId, "notice", "Nieuwe extractie klaar voor controle.");
-      }
-      const result = await processDocument(documentId);
-      if (!result.ok) redirectWithKnowledgeNotice(sourceId, "notice", result.error);
-      return;
-    }
-
-    redirectWithKnowledgeNotice(sourceId, "error", "Her-extractie is alleen voor PDF-documenten.");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Her-extractie mislukt";
-    await markExtractionFailed(documentId, message);
-    redirectWithKnowledgeNotice(sourceId, "error", message);
+  if ((row as KnowledgeItem | null)?.knowledge_type === "web") {
+    const refreshed = await refreshWebKnowledgeItem(itemId);
+    if (!refreshed.ok) redirectItemNotice(sourceId, itemId, "notice", refreshed.error);
   }
-}
 
-export async function reprocessDocument(documentId: string, sourceId: string) {
-  await requireAdminUser();
-  const refreshed = await refreshUrlDocumentContent(documentId);
-  if (!refreshed.ok) {
-    redirectWithKnowledgeNotice(sourceId, "notice", refreshed.error);
-  }
-  if (refreshed.doc.status === "awaiting_review") {
-    revalidatePath(`/knowledge-sources/${sourceId}`);
-    redirectWithKnowledgeNotice(sourceId, "notice", "Document wacht op extractie-controle.");
-  }
-  const result = await processDocument(documentId);
+  const result = await processKnowledgeItem(itemId);
+  revalidatePath(itemPath(sourceId, itemId));
   revalidatePath(`/knowledge-sources/${sourceId}`);
-  if (!result.ok) {
-    redirectWithKnowledgeNotice(sourceId, "notice", result.error);
-  }
+  if (!result.ok) redirectItemNotice(sourceId, itemId, "notice", result.error);
 }
 
+export async function deleteKnowledgeItem(itemId: string, sourceId: string) {
+  await requireAdminUser();
+  const supabase = createAdminClient();
+  await supabase.from("knowledge_documents").delete().eq("id", itemId);
+  revalidatePath(`/knowledge-sources/${sourceId}`);
+  redirect(`/knowledge-sources/${sourceId}`);
+}
+
+/** @deprecated No-op batch helper kept for assistant page compatibility */
 export async function processAllPending(sourceId: string) {
   await requireAdminUser();
-  await processPendingDocumentsForSource(sourceId);
+  const supabase = createAdminClient();
+  const { data: items } = await supabase
+    .from("knowledge_documents")
+    .select("id")
+    .eq("knowledge_source_id", sourceId)
+    .eq("status", "uploaded");
+
+  for (const item of items ?? []) {
+    await processKnowledgeItem(item.id);
+  }
   revalidatePath(`/knowledge-sources/${sourceId}`);
 }

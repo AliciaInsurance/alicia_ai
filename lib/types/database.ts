@@ -1,16 +1,16 @@
 export type AssistantStatus = "draft" | "active" | "inactive";
-export type DocumentStatus =
+
+export type KnowledgeItemStatus =
   | "uploaded"
-  | "extracting"
-  | "awaiting_review"
   | "processing"
   | "ready"
   | "failed"
-  | "rejected";
-export type DocumentSourceType = "manual" | "pdf" | "text" | "markdown" | "url";
-export type ExtractionMethod = "text" | "vision";
-export type ExtractionQuality = "good" | "poor" | "failed";
-export type ExtractionReviewStatus = "pending" | "approved" | "rejected" | "not_required";
+  | "unsupported";
+
+export type KnowledgeType = "manual_text" | "document" | "web" | "structured_data";
+
+export type KnowledgeReviewStatus = "draft" | "pending_review" | "approved" | "rejected";
+
 export type MessageRole = "user" | "assistant" | "system";
 export type ConversationChannel = "widget" | "admin_test";
 
@@ -38,29 +38,45 @@ export interface KnowledgeSource {
   updated_at: string;
 }
 
-export interface KnowledgeDocument {
+/** Row in knowledge_documents — a knowledge item within a source. */
+export interface KnowledgeItem {
   id: string;
   knowledge_source_id: string;
   title: string;
+  knowledge_type: KnowledgeType;
+  status: KnowledgeItemStatus;
+  review_status: KnowledgeReviewStatus;
+  category: string | null;
+  owner: string | null;
+  version_label: string | null;
+  product: string | null;
+  document_type: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
   filename: string | null;
   mime_type: string | null;
-  source_type: DocumentSourceType;
-  status: DocumentStatus;
+  content_type: string | null;
+  source_url: string | null;
+  fetched_at: string | null;
+  last_refresh_at: string | null;
   content_hash: string | null;
   raw_text: string | null;
-  pending_raw_text: string | null;
+  structured_data: StructuredDataPayload | null;
   storage_path: string | null;
-  source_url: string | null;
-  source_pdf_bytea?: string | null;
   error_message: string | null;
-  extraction_method: ExtractionMethod | null;
-  extraction_quality: ExtractionQuality | null;
-  extraction_reason: string | null;
-  page_count: number | null;
-  extraction_review_status: ExtractionReviewStatus;
+  source_type: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/** @deprecated Use KnowledgeItem */
+export type KnowledgeDocument = KnowledgeItem;
+
+export type StructuredDataPayload = {
+  format: "csv" | "json";
+  headers: string[];
+  rows: Record<string, string>[];
+};
 
 export interface WidgetConfig {
   id: string;

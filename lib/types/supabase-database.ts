@@ -1,7 +1,7 @@
 import type {
   Assistant,
   Conversation,
-  KnowledgeDocument,
+  KnowledgeItem,
   KnowledgeSource,
   MatchedChunk,
   Message,
@@ -42,13 +42,22 @@ export interface PlatformSetting extends Record<string, unknown> {
   updated_at: string;
 }
 
+export interface KnowledgeStructuredRow extends Record<string, unknown> {
+  id: string;
+  document_id: string;
+  row_index: number;
+  row_data: Record<string, string>;
+  created_at: string;
+}
+
 /** Supabase GenericSchema-compatible shape for the alicia_ai Postgres schema. */
 export type AliciaAiSchema = {
   Tables: {
     assistants: Table<Assistant & Record<string, unknown>>;
     knowledge_sources: Table<KnowledgeSource & Record<string, unknown>>;
-    knowledge_documents: Table<KnowledgeDocument & Record<string, unknown>>;
+    knowledge_documents: Table<KnowledgeItem & Record<string, unknown>>;
     knowledge_chunks: Table<KnowledgeChunk>;
+    knowledge_structured_rows: Table<KnowledgeStructuredRow>;
     assistant_sources: Table<AssistantSource>;
     widget_configs: Table<WidgetConfig & Record<string, unknown>>;
     conversations: Table<Conversation & Record<string, unknown>>;
