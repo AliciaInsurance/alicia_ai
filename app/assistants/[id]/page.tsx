@@ -16,6 +16,7 @@ import {
 import { getPublicAppUrl } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Assistant, KnowledgeSource, WidgetConfig } from "@/lib/types/database";
+import type { AssistantSource } from "@/lib/types/supabase-database";
 
 export default async function AssistantDetailPage({
   params,
@@ -26,29 +27,37 @@ export default async function AssistantDetailPage({
   const { id } = await params;
   const supabase = createAdminClient();
 
-  const { data: assistant } = await supabase
+  const { data: assistantRow } = await supabase
     .from("assistants")
     .select("*")
     .eq("id", id)
-    .maybeSingle<Assistant>();
+    .maybeSingle();
+
+  const assistant = assistantRow as Assistant | null;
 
   if (!assistant) notFound();
 
-  const [{ data: widget }, { data: attached }, { data: allSources }] = await Promise.all([
-    supabase.from("widget_configs").select("*").eq("assistant_id", id).maybeSingle<WidgetConfig>(),
-    supabase
-      .from("assistant_sources")
-      .select("knowledge_source_id, knowledge_sources(*)")
-      .eq("assistant_id", id),
+  const [{ data: widgetRow }, { data: sourceLinks }, { data: allSources }] = await Promise.all([
+    supabase.from("widget_configs").select("*").eq("assistant_id", id).maybeSingle(),
+    supabase.from("assistant_sources").select("knowledge_source_id").eq("assistant_id", id),
     supabase.from("knowledge_sources").select("*").order("name"),
   ]);
 
-  const attachedSources =
-    attached?.map((row) => row.knowledge_sources as KnowledgeSource).filter(Boolean) ?? [];
+  const attachedSourceIds = ((sourceLinks ?? []) as AssistantSource[]).map(
+    (row) => row.knowledge_source_id
+  );
+  const { data: attachedSourcesData } =
+    attachedSourceIds.length > 0
+      ? await supabase.from("knowledge_sources").select("*").in("id", attachedSourceIds)
+      : { data: [] as KnowledgeSource[] };
+
+  const attachedSources = (attachedSourcesData ?? []) as KnowledgeSource[];
 
   for (const source of attachedSources) {
     await processAllPending(source.id).catch(() => undefined);
   }
+
+  const widget = widgetRow as WidgetConfig | null;
 
   const appUrl = getPublicAppUrl().replace(/\/$/, "");
   const publicSlug = widget?.public_slug ?? assistant.slug;

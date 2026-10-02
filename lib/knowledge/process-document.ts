@@ -9,11 +9,13 @@ export async function processDocument(documentId: string): Promise<void> {
   const supabase = createAdminClient();
   const started = Date.now();
 
-  const { data: doc, error: fetchError } = await supabase
+  const { data: docRow, error: fetchError } = await supabase
     .from("knowledge_documents")
     .select("*")
     .eq("id", documentId)
-    .single<KnowledgeDocument>();
+    .single();
+
+  const doc = docRow as KnowledgeDocument | null;
 
   if (fetchError || !doc) {
     throw new Error(fetchError?.message ?? "Document not found");

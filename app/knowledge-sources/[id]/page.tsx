@@ -26,11 +26,13 @@ export default async function KnowledgeSourceDetailPage({
   const { id } = await params;
   const supabase = createAdminClient();
 
-  const { data: source } = await supabase
+  const { data: sourceRow } = await supabase
     .from("knowledge_sources")
     .select("*")
     .eq("id", id)
-    .maybeSingle<KnowledgeSource>();
+    .maybeSingle();
+
+  const source = sourceRow as KnowledgeSource | null;
 
   if (!source) notFound();
 

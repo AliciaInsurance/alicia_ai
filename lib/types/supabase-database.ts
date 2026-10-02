@@ -10,8 +10,8 @@ import type {
 
 type Table<T extends Record<string, unknown>> = {
   Row: T;
-  Insert: Partial<T>;
-  Update: Partial<T>;
+  Insert: Record<string, unknown>;
+  Update: Record<string, unknown>;
   Relationships: [];
 };
 
@@ -53,14 +53,10 @@ export type AliciaAiSchema = {
     messages: Table<Message & Record<string, unknown>>;
     platform_settings: Table<PlatformSetting>;
   };
-  Views: {};
+  Views: Record<string, never>;
   Functions: {
     match_knowledge_chunks: {
-      Args: {
-        query_embedding: number[];
-        match_source_ids: string[];
-        match_count?: number;
-      };
+      Args: Record<string, unknown>;
       Returns: MatchedChunk[];
     };
   };

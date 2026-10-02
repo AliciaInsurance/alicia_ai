@@ -42,13 +42,14 @@ async function getOrCreateConversation(
   const supabase = createAdminClient();
 
   if (input.conversationId) {
-    const { data } = await supabase
+    const { data: existingRow } = await supabase
       .from("conversations")
       .select("*")
       .eq("id", input.conversationId)
       .eq("assistant_id", assistant.id)
-      .maybeSingle<Conversation>();
-    if (data) return data;
+      .maybeSingle();
+    const existing = existingRow as Conversation | null;
+    if (existing) return existing;
   }
 
   let widgetConfigId: string | null = null;
@@ -62,7 +63,7 @@ async function getOrCreateConversation(
     widgetConfigId = widget.id as string;
   }
 
-  const { data, error } = await supabase
+  const { data: createdRow, error } = await supabase
     .from("conversations")
     .insert({
       assistant_id: assistant.id,
@@ -73,7 +74,9 @@ async function getOrCreateConversation(
       channel: input.channel,
     })
     .select("*")
-    .single<Conversation>();
+    .single();
+
+  const data = createdRow as Conversation | null;
 
   if (error || !data) throw new Error(error?.message ?? "Could not create conversation");
   return data;

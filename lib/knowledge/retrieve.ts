@@ -3,6 +3,7 @@ import { embedTexts } from "@/lib/knowledge/embeddings";
 import { CHUNK_CONFIG } from "@/lib/knowledge/chunking";
 import { log } from "@/lib/logger";
 import type { MatchedChunk } from "@/lib/types/database";
+import type { AssistantSource } from "@/lib/types/supabase-database";
 
 export async function getAssistantSourceIds(assistantId: string): Promise<string[]> {
   const supabase = createAdminClient();
@@ -12,7 +13,7 @@ export async function getAssistantSourceIds(assistantId: string): Promise<string
     .eq("assistant_id", assistantId);
 
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => r.knowledge_source_id as string);
+  return ((data ?? []) as AssistantSource[]).map((r) => r.knowledge_source_id);
 }
 
 export async function retrieveRelevantChunks(

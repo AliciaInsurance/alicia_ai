@@ -7,11 +7,13 @@ export async function resolveActiveAssistant(
 ): Promise<Assistant> {
   const supabase = createAdminClient();
 
-  const { data: byAssistantSlug } = await supabase
+  const { data: byAssistantSlugRow } = await supabase
     .from("assistants")
     .select("*")
     .eq("slug", slugOrPublicSlug)
-    .maybeSingle<Assistant>();
+    .maybeSingle();
+
+  const byAssistantSlug = byAssistantSlugRow as Assistant | null;
 
   if (byAssistantSlug?.status === "active") return byAssistantSlug;
 
@@ -25,11 +27,13 @@ export async function resolveActiveAssistant(
     throw new Error("Assistant not found or not available");
   }
 
-  const { data: assistant } = await supabase
+  const { data: assistantRow } = await supabase
     .from("assistants")
     .select("*")
     .eq("id", widget.assistant_id)
-    .single<Assistant>();
+    .single();
+
+  const assistant = assistantRow as Assistant | null;
 
   if (!assistant || assistant.status !== "active") {
     throw new Error("Assistant not found or not available");
