@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { auth, isAuthRequired } from "@/lib/auth/auth";
-import { isAllowedEmail } from "@/lib/auth/auth-policy";
+import { isGoogleAuthConfigured, isAuthRequiredFromEnv } from "@/lib/auth/auth-policy";
 import {
   CANONICAL_PRODUCTION_HOST,
   isCanonicalProductionHost,
@@ -19,6 +18,15 @@ const publicPaths = [
 
 const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2?|txt|html|xml|webmanifest|js)$/i;
 
+function hasAuthSessionCookie(request: NextRequest): boolean {
+  return request.cookies.getAll().some(
+    (cookie) =>
+      cookie.name.includes("authjs.session-token") ||
+      cookie.name.includes("__Secure-authjs.session-token") ||
+      cookie.name.includes("next-auth.session-token")
+  );
+}
+
 function redirectToCanonicalHost(request: NextRequest) {
   if (process.env.VERCEL_ENV !== "production") return null;
   const host = request.headers.get("host");
@@ -31,37 +39,43 @@ function redirectToCanonicalHost(request: NextRequest) {
   return NextResponse.redirect(url, 308);
 }
 
-export async function middleware(request: NextRequest) {
-  const canonical = redirectToCanonicalHost(request);
-  if (canonical) return canonical;
-
-  const { pathname } = request.nextUrl;
-
-  if (PUBLIC_FILE.test(pathname) || publicPaths.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
-  }
-
-  if (!isAuthRequired()) {
-    return NextResponse.next();
-  }
-
-  let session = null;
+export function middleware(request: NextRequest) {
   try {
-    session = await auth();
+    const canonical = redirectToCanonicalHost(request);
+    if (canonical) return canonical;
+
+    const { pathname } = request.nextUrl;
+
+    if (PUBLIC_FILE.test(pathname) || publicPaths.some((p) => pathname.startsWith(p))) {
+      return NextResponse.next();
+    }
+
+    if (!isAuthRequiredFromEnv(process.env)) {
+      return NextResponse.next();
+    }
+
+    if (!isGoogleAuthConfigured(process.env)) {
+      if (pathname.startsWith("/login")) {
+        return NextResponse.next();
+      }
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("error", "Configuration");
+      return NextResponse.redirect(loginUrl);
+    }
+
+    if (!hasAuthSessionCookie(request)) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    return NextResponse.next();
   } catch (error) {
-    console.error("[auth] middleware", error);
+    console.error("[middleware] invocation failed", error);
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("error", "Configuration");
     return NextResponse.redirect(loginUrl);
   }
-
-  if (!session?.user || !isAllowedEmail(session.user.email)) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return NextResponse.next();
 }
 
 export const config = {
