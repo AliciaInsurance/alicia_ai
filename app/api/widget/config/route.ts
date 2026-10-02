@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveActiveAssistant } from "@/lib/chat/resolve-assistant";
+import type { WidgetConfig } from "@/lib/types/database";
 
 export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get("assistant");
@@ -12,11 +13,13 @@ export async function GET(request: NextRequest) {
     const assistant = await resolveActiveAssistant(slug);
     const supabase = createAdminClient();
 
-    const { data: widget } = await supabase
+    const { data: widgetRow } = await supabase
       .from("widget_configs")
       .select("*")
       .eq("assistant_id", assistant.id)
       .maybeSingle();
+
+    const widget = widgetRow as WidgetConfig | null;
 
     if (!widget?.is_enabled) {
       return NextResponse.json({ error: "Widget unavailable" }, { status: 404 });

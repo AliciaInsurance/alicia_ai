@@ -1,6 +1,7 @@
 import { ChatPanel } from "@/components/chat-panel";
 import { resolveActiveAssistant } from "@/lib/chat/resolve-assistant";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { WidgetConfig } from "@/lib/types/database";
 
 export default async function EmbedChatPage({
   searchParams,
@@ -21,11 +22,13 @@ export default async function EmbedChatPage({
   try {
     const assistant = await resolveActiveAssistant(assistantKey);
     const supabase = createAdminClient();
-    const { data: widget } = await supabase
+    const { data: widgetRow } = await supabase
       .from("widget_configs")
       .select("primary_color, is_enabled")
       .eq("assistant_id", assistant.id)
       .maybeSingle();
+
+    const widget = widgetRow as Pick<WidgetConfig, "primary_color" | "is_enabled"> | null;
 
     if (!widget?.is_enabled) throw new Error("disabled");
 
