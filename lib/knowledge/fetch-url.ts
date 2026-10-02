@@ -238,7 +238,11 @@ export async function fetchUrlContent(rawUrl: string): Promise<FetchedUrlContent
       throw new Error("Lege inhoud ontvangen van URL");
     }
 
-    const sourceType = detectSourceTypeFromMime(mimeType, target.sourceTypeHint);
+    const isPdfFile =
+      buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "%PDF";
+    const sourceType = isPdfFile
+      ? "pdf"
+      : detectSourceTypeFromMime(mimeType, target.sourceTypeHint);
     let text: string;
     let title = target.titleHint;
 

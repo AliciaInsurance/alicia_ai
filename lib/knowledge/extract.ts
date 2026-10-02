@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { assessPdfExtractQuality } from "@/lib/knowledge/pdf-text-quality";
 import type { DocumentSourceType } from "@/lib/types/database";
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -37,7 +38,12 @@ export async function extractTextFromBuffer(
     try {
       const pdfParse = (await import("pdf-parse")).default;
       const parsed = await pdfParse(buffer);
-      return parsed.text?.trim() ?? "";
+      const text = parsed.text?.trim() ?? "";
+      const quality = assessPdfExtractQuality(text);
+      if (!quality.ok) {
+        throw new Error(quality.message);
+      }
+      return text;
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`PDF text extraction failed: ${detail}`);
