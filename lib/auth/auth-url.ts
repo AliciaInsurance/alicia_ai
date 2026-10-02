@@ -14,10 +14,14 @@ function isVercelAppUrl(url: string) {
   }
 }
 
+/**
+ * Auth.js base URL. Production is always ask.alicia.insure so Google redirect_uri
+ * and session cookies stay on the custom domain (not *.vercel.app).
+ */
 export function resolveAuthUrl(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  const configured = trimEnv(env, "AUTH_URL") ?? trimEnv(env, "NEXT_PUBLIC_APP_URL");
+  const configured = trimEnv(env, "AUTH_URL");
   const vercelEnv = env.VERCEL_ENV;
 
   if (vercelEnv === "production") {

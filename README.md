@@ -135,17 +135,21 @@ Optional: `data-primary-color="#0f766e"`.
 | `GET /widget.js` | Embed loader script |
 | `GET /api/health` | Deployment health check (`{"ok":true}`) |
 
-## Vercel / domain troubleshooting
+## Vercel (Alicia internal app bootstrap)
 
-If you see **404 NOT_FOUND** on every path (including `/login`):
+Ship **`vercel.json` in the first commit** (same pattern as Gardner/Kalinda):
 
-1. **Vercel → Project → Deployments** — latest production deploy must be **Ready** (not Error/Canceled).
-2. **Settings → Domains** — `ask.alicia.insure` must be assigned to **this** project (not another Alicia app).
-3. **Settings → General** — Framework Preset **Next.js**, Root Directory empty (repo root), Build `npm run build`.
-4. Open the **\*.vercel.app** preview URL from the latest deploy; if that works but the custom domain does not, fix DNS/domain assignment.
-5. Verify `GET /api/health` on the working URL.
+- `"framework": "nextjs"` — without this, `npm run build` can succeed in logs but Vercel may not attach Next.js routing → platform **404** on every path.
+- `"github": { "autoAlias": true }` — production alias to the custom domain.
+- `"regions": ["fra1"]`, `"alias": ["ask.alicia.insure"]`.
 
-Admin routes are protected by **Auth.js** in layouts/server actions (no Edge middleware).
+**Do not** set a custom **Output Directory** in the Vercel UI for Next.js (leave blank).
+
+**Edge auth:** use cookie-only `middleware.ts` (Gardner pattern). Never call NextAuth `auth()` on Edge — it causes `MIDDLEWARE_INVOCATION_FAILED`.
+
+**Smoke tests after deploy:** `GET /deploy-stamp.txt` (static), `GET /api/health`, `/login`.
+
+Admin authorization remains server-side (`requireAdminUser()` in layouts + Auth.js callbacks).
 
 ## Security decisions (v0.1)
 

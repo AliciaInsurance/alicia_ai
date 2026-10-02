@@ -1,0 +1,16 @@
+---
+description: Alicia internal Next.js app — Vercel first deploy (avoid 404 / middleware 500)
+alwaysApply: true
+---
+
+# Alicia internal app — Vercel bootstrap
+
+When scaffolding or fixing a **new Alicia internal app** on Vercel:
+
+1. **Commit `vercel.json` in the first PR** with `"framework": "nextjs"`, `"regions": ["fra1"]`, production `"alias"`, and `"github": { "autoAlias": true }` (copy Gardner/Lockhart). Never rely on the Vercel UI framework guess alone.
+2. **Never set Output Directory** in Vercel project settings for Next.js.
+3. Add **`public/deploy-stamp.txt`** for static deploy smoke tests.
+4. **Middleware:** Gardner-style cookie check only. Public paths must include `/api/auth`, `/api/health`, widget/chat/embed routes. **Do not import `auth()` from NextAuth in middleware.**
+5. **`next.config.ts`:** set `env.NEXT_PUBLIC_APP_URL` for preview vs production (see Gardner). Pin Auth.js to the custom domain in production (`resolveAuthUrl` → canonical host, not `*.vercel.app`).
+6. Prefer **`src/app`** layout like Gold/Kalinda when starting greenfield; root `app/` is OK if `vercel.json` is present.
+7. Do not blame DNS/domain when the user confirms the domain — check missing `vercel.json` / wrong framework output first, then build logs.
