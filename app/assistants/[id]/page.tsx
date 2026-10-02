@@ -4,6 +4,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/admin-shell";
 import { ChatPanel } from "@/components/chat-panel";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusBadge } from "@/components/ui/badge";
 import { requireAdminUser } from "@/lib/auth/admin";
 import {
   setAssistantStatus,
@@ -81,28 +85,28 @@ export default async function AssistantDetailPage({
   }
 
   return (
-    <AdminShell title={assistant.internal_name}>
-      <p className="mb-6 text-sm text-slate-600">
-        Customer-facing identity: <strong>{assistant.customer_display_name}</strong> · slug{" "}
-        <code className="rounded bg-slate-100 px-1">{assistant.slug}</code>
-      </p>
-
-      <div className="mb-4 flex gap-2">
+    <AdminShell
+      eyebrow="Assistant"
+      title={assistant.internal_name}
+      description={`Klantidentiteit: ${assistant.customer_display_name} · slug ${assistant.slug}`}
+    >
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <StatusBadge status={assistant.status} />
         <form action={activate}>
-          <button type="submit" className="rounded-lg border bg-white px-4 py-2 text-sm">
-            Activate
-          </button>
+          <Button type="submit" variant="secondary" size="sm">
+            Activeren
+          </Button>
         </form>
         <form action={deactivate}>
-          <button type="submit" className="rounded-lg border bg-white px-4 py-2 text-sm">
-            Deactivate
-          </button>
+          <Button type="submit" variant="outline" size="sm">
+            Deactiveren
+          </Button>
         </form>
       </div>
 
       <div className="space-y-8">
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold">1. General</h2>
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">1. Algemeen</h2>
           <form
             action={updateAssistant.bind(null, id)}
             className="mt-3 grid gap-3 md:grid-cols-2"
@@ -113,70 +117,51 @@ export default async function AssistantDetailPage({
               name="personality_instructions"
               value={assistant.personality_instructions}
             />
-            <label className="text-sm">
-              Internal name
-              <input
-                name="internal_name"
-                defaultValue={assistant.internal_name}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              />
+            <label className="block text-[15px] font-medium text-ink">
+              Interne naam
+              <Input name="internal_name" defaultValue={assistant.internal_name} className="mt-2" />
             </label>
-            <label className="text-sm">
+            <label className="block text-[15px] font-medium text-ink">
               Slug
-              <input
-                name="slug"
-                defaultValue={assistant.slug}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              />
+              <Input name="slug" defaultValue={assistant.slug} className="mt-2" />
             </label>
-            <label className="text-sm">
+            <label className="block text-[15px] font-medium text-ink">
               Status
               <select
                 name="status"
                 defaultValue={assistant.status}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                className="mt-2 h-11 w-full rounded-2xl border border-input-border bg-cream px-4 text-[15px]"
               >
                 <option value="draft">draft</option>
                 <option value="active">active</option>
                 <option value="inactive">inactive</option>
               </select>
             </label>
-            <label className="text-sm">
+            <label className="block text-[15px] font-medium text-ink">
               Model
-              <input
-                name="model"
-                defaultValue={assistant.model}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              />
+              <Input name="model" defaultValue={assistant.model} className="mt-2" />
             </label>
-            <label className="text-sm md:col-span-2">
-              Greeting
-              <textarea
-                name="greeting"
-                defaultValue={assistant.greeting}
-                rows={2}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              />
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Begroeting
+              <Textarea name="greeting" defaultValue={assistant.greeting} rows={2} className="mt-2" />
             </label>
-            <label className="text-sm md:col-span-2">
-              Fallback message
-              <textarea
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Fallback-bericht
+              <Textarea
                 name="fallback_message"
                 defaultValue={assistant.fallback_message}
                 rows={2}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                className="mt-2"
               />
             </label>
             <div className="md:col-span-2">
-              <button type="submit" className="rounded-lg bg-teal-700 px-4 py-2 text-sm text-white">
-                Save general
-              </button>
+              <Button type="submit">Opslaan</Button>
             </div>
           </form>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold">2. Personality & instructions</h2>
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">2. Instructies</h2>
           <form action={updateAssistant.bind(null, id)} className="mt-3 space-y-3">
             <input type="hidden" name="internal_name" value={assistant.internal_name} />
             <input type="hidden" name="slug" value={assistant.slug} />
@@ -184,108 +169,102 @@ export default async function AssistantDetailPage({
             <input type="hidden" name="model" value={assistant.model} />
             <input type="hidden" name="greeting" value={assistant.greeting} />
             <input type="hidden" name="fallback_message" value={assistant.fallback_message} />
-            <label className="block text-sm">
+            <label className="block text-[15px] font-medium text-ink">
               System instructions
-              <textarea
+              <Textarea
                 name="system_instructions"
                 defaultValue={assistant.system_instructions}
                 rows={4}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs"
+                className="mt-2 font-mono text-xs"
               />
             </label>
-            <label className="block text-sm">
+            <label className="block text-[15px] font-medium text-ink">
               Personality / tone
-              <textarea
+              <Textarea
                 name="personality_instructions"
                 defaultValue={assistant.personality_instructions}
                 rows={3}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                className="mt-2"
               />
             </label>
-            <button type="submit" className="rounded-lg bg-teal-700 px-4 py-2 text-sm text-white">
-              Save instructions
-            </button>
+            <Button type="submit">Opslaan</Button>
           </form>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold">3. Knowledge</h2>
-          <ul className="mt-3 space-y-2 text-sm">
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">3. Kennis</h2>
+          <ul className="mt-3 space-y-2 text-[15px]">
             {attachedSources.map((s) => (
-              <li key={s.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                <Link href={`/knowledge-sources/${s.id}`} className="font-medium text-teal-800 hover:underline">
+              <li
+                key={s.id}
+                className="flex items-center justify-between rounded-2xl bg-cream px-4 py-3 ring-1 ring-ink/5"
+              >
+                <Link href={`/knowledge-sources/${s.id}`} className="font-semibold text-forest hover:underline">
                   {s.name}
                 </Link>
                 <form action={detachSourceFromAssistant.bind(null, id, s.id)}>
-                  <button type="submit" className="text-xs text-slate-600 hover:text-red-700">
-                    Detach
-                  </button>
+                  <Button type="submit" variant="ghost" size="sm" className="text-danger">
+                    Loskoppelen
+                  </Button>
                 </form>
               </li>
             ))}
             {attachedSources.length === 0 ? (
-              <li className="text-slate-500">No knowledge sources attached.</li>
+              <li className="text-muted">Geen kennisbronnen gekoppeld.</li>
             ) : null}
           </ul>
 
           <form className="mt-4 flex flex-wrap gap-2" action={attachSource}>
-            <select name="source_id" className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              <option value="">Attach existing source…</option>
+            <select
+              name="source_id"
+              className="h-11 rounded-2xl border border-input-border bg-cream px-4 text-[15px]"
+            >
+              <option value="">Koppel bestaande bron…</option>
               {(allSources as KnowledgeSource[] | null)?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
             </select>
-            <button type="submit" className="rounded-lg border px-3 py-2 text-sm">
-              Attach
-            </button>
+            <Button type="submit" variant="secondary">
+              Koppelen
+            </Button>
           </form>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold">4. Widget</h2>
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">4. Widget</h2>
           {widget ? (
             <form action={updateWidgetConfig.bind(null, id)} className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className="text-sm">
+              <label className="block text-[15px] font-medium text-ink">
                 Public slug
-                <input
-                  name="public_slug"
-                  defaultValue={widget.public_slug}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-                />
+                <Input name="public_slug" defaultValue={widget.public_slug} className="mt-2" />
               </label>
-              <label className="text-sm">
+              <label className="block text-[15px] font-medium text-ink">
                 Primary colour
-                <input
+                <Input
                   name="primary_color"
-                  defaultValue={widget.primary_color ?? "#0f766e"}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  defaultValue={widget.primary_color ?? "#2d4a3e"}
+                  className="mt-2"
                 />
               </label>
-              <label className="text-sm">
+              <label className="block text-[15px] font-medium text-ink">
                 Position
-                <input
-                  name="position"
-                  defaultValue={widget.position}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-                />
+                <Input name="position" defaultValue={widget.position} className="mt-2" />
               </label>
-              <label className="flex items-center gap-2 text-sm md:mt-6">
+              <label className="flex items-center gap-2 text-[15px] md:mt-8">
                 <input type="checkbox" name="is_enabled" defaultChecked={widget.is_enabled} />
                 Enabled
               </label>
               <div className="md:col-span-2">
-                <button type="submit" className="rounded-lg bg-teal-700 px-4 py-2 text-sm text-white">
-                  Save widget
-                </button>
+                <Button type="submit">Opslaan</Button>
               </div>
             </form>
           ) : (
-            <p className="mt-2 text-sm text-slate-600">No widget config row yet.</p>
+            <p className="mt-2 text-[15px] text-muted">Nog geen widget-configuratie.</p>
           )}
 
-          <pre className="mt-4 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+          <pre className="mt-4 overflow-x-auto rounded-2xl bg-ink p-4 text-xs text-cream">
 {`<script
   src="${appUrl}/widget.js"
   data-assistant="${publicSlug}">
@@ -293,10 +272,10 @@ export default async function AssistantDetailPage({
           </pre>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold">5. Test</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Uses the same <code>/api/chat</code> flow as the public widget (admin_test channel).
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">5. Test</h2>
+          <p className="mt-1 text-[15px] text-muted">
+            Zelfde <code className="text-ink">/api/chat</code> flow als de publieke widget (admin_test).
           </p>
           <div className="mt-3 h-[480px]">
             <ChatPanel
@@ -304,7 +283,7 @@ export default async function AssistantDetailPage({
               channel="admin_test"
               displayName={assistant.customer_display_name}
               greeting={assistant.greeting}
-              primaryColor={widget?.primary_color ?? "#0f766e"}
+              primaryColor={widget?.primary_color ?? "#2d4a3e"}
               showDevErrors
             />
           </div>

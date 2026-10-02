@@ -17,20 +17,23 @@ export async function requireAdminUser() {
     session = await auth();
   } catch (error) {
     console.error("[auth] requireAdminUser", error);
-    redirect(`/login?error=${encodeURIComponent("Configuration")}`);
+    redirect("/login?error=Configuration");
   }
 
   if (!session?.user?.email || !isAllowedEmail(session.user.email)) {
-    redirect("/login?next=/assistants");
+    redirect("/login?callbackUrl=/assistants");
   }
 
   return session.user;
 }
 
-export function formatLoginError(searchParams: {
-  error?: string;
-  hint?: string;
-  reason?: string;
-}) {
-  return loginErrorMessage(searchParams.error, searchParams.hint, searchParams.reason);
+export function formatLoginError(
+  searchParams: {
+    error?: string;
+    hint?: string;
+    reason?: string;
+  },
+  origin: string,
+) {
+  return loginErrorMessage(searchParams.error, origin, searchParams.hint, searchParams.reason);
 }

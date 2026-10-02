@@ -1,9 +1,23 @@
 export const dynamic = "force-dynamic";
 
-import { GoogleSignInButton } from "@/components/google-sign-in-button";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
+import { LoginScreen } from "@/components/login/login-screen";
 import { isAuthConfigured, isAuthRequired } from "@/lib/auth/auth";
 import { formatLoginError } from "@/lib/auth/admin";
+import { nl } from "@/lib/i18n/nl";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+
+export const metadata = {
+  title: "Inloggen",
+};
+
+function requestOrigin(headerStore: Awaited<ReturnType<typeof headers>>) {
+  const host =
+    headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? "ask.alicia.insure";
+  const proto = headerStore.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
 
 function firstParam(value: string | string[] | undefined) {
   return typeof value === "string" ? value : undefined;
@@ -26,45 +40,25 @@ export default async function LoginPage({
     redirect("/assistants");
   }
 
+  if (!isAuthConfigured()) {
+    return <LoginScreen errorMessage={nl.login.notConfigured}>{null}</LoginScreen>;
+  }
+
+  const origin = requestOrigin(await headers());
   const callbackUrl =
     firstParam(params.callbackUrl) ?? firstParam(params.next) ?? "/assistants";
-  const errorMessage = formatLoginError({
-    error: firstParam(params.error),
-    hint: firstParam(params.hint),
-    reason: firstParam(params.reason),
-  });
+  const errorMessage = formatLoginError(
+    {
+      error: firstParam(params.error),
+      hint: firstParam(params.hint),
+      reason: firstParam(params.reason),
+    },
+    origin,
+  );
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">Alicia AI Admin</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Sign in with your Alicia Google Workspace account.
-        </p>
-
-        {!isAuthConfigured() ? (
-          <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Google OAuth is not configured. Set AUTH_SECRET, GOOGLE_CLIENT_ID and
-            GOOGLE_CLIENT_SECRET.
-          </p>
-        ) : null}
-
-        {errorMessage ? (
-          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {errorMessage}
-          </p>
-        ) : null}
-
-        {isAuthConfigured() ? (
-          <div className="mt-6">
-            <GoogleSignInButton callbackUrl={callbackUrl} />
-          </div>
-        ) : null}
-
-        <p className="mt-4 text-center text-xs text-slate-500">
-          Admin access is limited to <strong>@alicia.insure</strong> accounts.
-        </p>
-      </div>
-    </div>
+    <LoginScreen errorMessage={errorMessage}>
+      <GoogleSignInButton callbackUrl={callbackUrl} />
+    </LoginScreen>
   );
 }

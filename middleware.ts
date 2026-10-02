@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   "/api/health",
   "/api/chat",
   "/api/widget",
+  "/api/alicia",
   "/embed",
   "/widget.js",
   "/deploy-stamp.txt",
