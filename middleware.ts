@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { isGoogleAuthConfigured, isAuthRequiredFromEnv } from "@/lib/auth/auth-policy";
-import {
-  CANONICAL_PRODUCTION_HOST,
-  isCanonicalProductionHost,
-  isVercelProductionAlias,
-} from "@/lib/auth/auth-url";
 
-const publicPaths = [
+/**
+ * Edge-safe middleware (no Auth.js / env module imports).
+ * Session cookie gate only — full auth() + @alicia.insure checks run in server pages/actions.
+ */
+
+const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth",
   "/api/chat",
@@ -18,6 +17,13 @@ const publicPaths = [
 
 const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2?|txt|html|xml|webmanifest|js)$/i;
 
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_FILE.test(pathname)) return true;
+  return PUBLIC_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
 function hasAuthSessionCookie(request: NextRequest): boolean {
   return request.cookies.getAll().some(
     (cookie) =>
@@ -27,59 +33,57 @@ function hasAuthSessionCookie(request: NextRequest): boolean {
   );
 }
 
-function redirectToCanonicalHost(request: NextRequest) {
-  if (process.env.VERCEL_ENV !== "production") return null;
-  const host = request.headers.get("host");
-  if (isCanonicalProductionHost(host) || !isVercelProductionAlias(host)) return null;
+function isAuthRequired(): boolean {
+  const env = process.env;
+  if (env.VERCEL_ENV === "production") return true;
+  if (env.DEMO_MODE?.trim() === "true") return false;
+  const googleOk = Boolean(
+    env.GOOGLE_CLIENT_ID?.trim() &&
+      env.GOOGLE_CLIENT_SECRET?.trim() &&
+      (env.AUTH_SECRET?.trim() || env.NEXTAUTH_SECRET?.trim())
+  );
+  const supabaseOk = Boolean(
+    env.NEXT_PUBLIC_SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  );
+  return googleOk || supabaseOk;
+}
 
-  const url = request.nextUrl.clone();
-  url.hostname = CANONICAL_PRODUCTION_HOST;
-  url.protocol = "https:";
-  url.port = "";
-  return NextResponse.redirect(url, 308);
+function isAuthConfigured(): boolean {
+  const env = process.env;
+  return Boolean(
+    env.GOOGLE_CLIENT_ID?.trim() &&
+      env.GOOGLE_CLIENT_SECRET?.trim() &&
+      (env.AUTH_SECRET?.trim() || env.NEXTAUTH_SECRET?.trim())
+  );
 }
 
 export function middleware(request: NextRequest) {
-  try {
-    const canonical = redirectToCanonicalHost(request);
-    if (canonical) return canonical;
+  const pathname = request.nextUrl.pathname;
 
-    const { pathname } = request.nextUrl;
-
-    if (PUBLIC_FILE.test(pathname) || publicPaths.some((p) => pathname.startsWith(p))) {
-      return NextResponse.next();
-    }
-
-    if (!isAuthRequiredFromEnv(process.env)) {
-      return NextResponse.next();
-    }
-
-    if (!isGoogleAuthConfigured(process.env)) {
-      if (pathname.startsWith("/login")) {
-        return NextResponse.next();
-      }
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("error", "Configuration");
-      return NextResponse.redirect(loginUrl);
-    }
-
-    if (!hasAuthSessionCookie(request)) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
-  } catch (error) {
-    console.error("[middleware] invocation failed", error);
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("error", "Configuration");
-    return NextResponse.redirect(loginUrl);
   }
+
+  if (!isAuthRequired()) {
+    return NextResponse.next();
+  }
+
+  if (!isAuthConfigured()) {
+    if (pathname.startsWith("/login")) {
+      return NextResponse.next();
+    }
+    return NextResponse.redirect(new URL("/login?error=Configuration", request.url));
+  }
+
+  if (!hasAuthSessionCookie(request)) {
+    const login = new URL("/login", request.url);
+    login.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(login);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|webmanifest)$).*)",
-  ],
+  matcher: ["/assistants/:path*", "/knowledge-sources/:path*"],
 };
