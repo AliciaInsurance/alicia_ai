@@ -14,7 +14,10 @@ import {
   reprocessKnowledgeItem,
   updateKnowledgeItem,
 } from "@/lib/actions/knowledge";
-import { KNOWLEDGE_TYPE_LABELS } from "@/lib/knowledge/constants";
+import {
+  KNOWLEDGE_PREVIEW_MAX_CHARS,
+  KNOWLEDGE_TYPE_LABELS,
+} from "@/lib/knowledge/constants";
 import { requireAdminUser } from "@/lib/auth/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { KnowledgeItem } from "@/lib/types/database";
@@ -47,6 +50,13 @@ export default async function KnowledgeItemDetailPage({
 
   const previewText = item.raw_text?.trim() ?? "";
   const structured = item.structured_data;
+  const textCharCount = previewText.length;
+  const previewTruncated = textCharCount > KNOWLEDGE_PREVIEW_MAX_CHARS;
+
+  const { count: chunkCount } = await supabase
+    .from("knowledge_chunks")
+    .select("id", { count: "exact", head: true })
+    .eq("document_id", itemId);
 
   return (
     <AdminShell
@@ -73,6 +83,29 @@ export default async function KnowledgeItemDetailPage({
         <StatusBadge status={item.status} />
         <StatusBadge status={item.review_status} />
       </div>
+
+      {item.review_status === "pending_review" ? (
+        <p className="mb-6 rounded-2xl bg-warn-bg px-5 py-4 text-[15px] text-warn">
+          Dit item is nog niet actief in chat. Controleer de preview en klik{" "}
+          <strong>Goedkeuren</strong> om retrieval te openen.
+        </p>
+      ) : null}
+
+      {item.status === "ready" && textCharCount > 0 ? (
+        <p className="mb-6 text-sm text-muted">
+          Opgeslagen tekst:{" "}
+          <span className="font-medium text-ink">
+            {textCharCount.toLocaleString("nl-NL")} tekens
+          </span>
+          {chunkCount != null && chunkCount > 0 ? (
+            <>
+              {" "}
+              · <span className="font-medium text-ink">{chunkCount} chunks</span> voor
+              embeddings
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       <section className="card-surface mb-6 p-5 sm:p-6">
         <h2 className="font-display text-lg font-bold text-ink">Metadata</h2>
@@ -185,10 +218,19 @@ export default async function KnowledgeItemDetailPage({
             ) : null}
           </div>
         ) : previewText ? (
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-xl bg-cream/60 p-4 text-xs leading-relaxed">
-            {previewText.slice(0, 12000)}
-            {previewText.length > 12000 ? "…" : ""}
-          </pre>
+          <>
+            {previewTruncated ? (
+              <p className="mt-2 text-xs text-muted">
+                Preview toont de eerste {KNOWLEDGE_PREVIEW_MAX_CHARS.toLocaleString("nl-NL")}{" "}
+                van {textCharCount.toLocaleString("nl-NL")} tekens. De volledige tekst staat in
+                de database en is gebruikt voor chunking — niet alleen wat je hier ziet.
+              </p>
+            ) : null}
+            <pre className="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-xl bg-cream/60 p-4 text-xs leading-relaxed">
+              {previewText.slice(0, KNOWLEDGE_PREVIEW_MAX_CHARS)}
+              {previewTruncated ? "\n\n[… preview afgekapt …]" : ""}
+            </pre>
+          </>
         ) : (
           <p className="mt-3 text-muted text-sm">Geen preview beschikbaar.</p>
         )}
