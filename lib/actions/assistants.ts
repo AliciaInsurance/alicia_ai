@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { AssistantStatus } from "@/lib/types/database";
+import type { AssistantStatus, AssistantType } from "@/lib/types/database";
+
+const ASSISTANT_TYPES: AssistantType[] = [
+  "public_sales",
+  "public_service",
+  "internal_copilot",
+];
 
 function slugify(value: string): string {
   return value
@@ -51,6 +57,14 @@ export async function updateAssistant(id: string, formData: FormData) {
   await requireAdminUser();
   const supabase = createAdminClient();
 
+  const allowedRaw = String(formData.get("allowed_products") ?? "").trim();
+  const allowed_products = allowedRaw
+    ? allowedRaw
+        .split(/[,;\n]+/)
+        .map((p) => p.trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+
   const payload = {
     internal_name: String(formData.get("internal_name") ?? "").trim(),
     slug: slugify(String(formData.get("slug") ?? "")),
@@ -60,6 +74,19 @@ export async function updateAssistant(id: string, formData: FormData) {
     fallback_message: String(formData.get("fallback_message") ?? "").trim(),
     system_instructions: String(formData.get("system_instructions") ?? ""),
     personality_instructions: String(formData.get("personality_instructions") ?? ""),
+    assistant_type: (() => {
+      const t = String(formData.get("assistant_type") ?? "public_sales");
+      return ASSISTANT_TYPES.includes(t as AssistantType) ? t : "public_sales";
+    })(),
+    purpose: String(formData.get("purpose") ?? "").trim(),
+    audience: String(formData.get("audience") ?? "").trim(),
+    channel_context: String(formData.get("channel_context") ?? "").trim(),
+    allowed_products,
+    partner: String(formData.get("partner") ?? "").trim() || null,
+    default_product: String(formData.get("default_product") ?? "").trim().toUpperCase() || null,
+    goals: String(formData.get("goals") ?? "").trim(),
+    restrictions: String(formData.get("restrictions") ?? "").trim(),
+    understanding_model: String(formData.get("understanding_model") ?? "gpt-4o-mini").trim(),
   };
 
   const { error } = await supabase.from("assistants").update(payload).eq("id", id);

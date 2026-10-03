@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:knowledge": "tsx lib/knowledge/pdf-quality.test.mts"
+    "test:knowledge": "tsx lib/knowledge/pdf-quality.test.mts",
+    "test:conversation": "tsx lib/chat/eval/deterministic.test.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

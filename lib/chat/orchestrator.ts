@@ -1,23 +1,25 @@
-import OpenAI from "openai";
+import { decideClarification } from "@/lib/chat/clarification";
+import {
+  mergeConversationState,
+  parseConversationState,
+  type ConversationState,
+} from "@/lib/chat/conversation-state";
+import { resolveProduct } from "@/lib/chat/product-resolution";
 import { resolveActiveAssistant } from "@/lib/chat/resolve-assistant";
-import { getOpenAIApiKey } from "@/lib/env";
-import { retrieveRelevantChunks } from "@/lib/knowledge/retrieve";
-import { buildGroundedContext, getPlatformInsuranceRules } from "@/lib/platform/rules";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { synthesizeAnswer, synthesizeClarification } from "@/lib/chat/synthesis";
+import {
+  runConversationUnderstanding,
+  type ConversationUnderstanding,
+} from "@/lib/chat/understanding";
+import { retrieveRelevantKnowledge } from "@/lib/knowledge/retrieve";
 import { log } from "@/lib/logger";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   Assistant,
   Conversation,
   ConversationChannel,
   Message,
 } from "@/lib/types/database";
-
-let openai: OpenAI | null = null;
-
-function getOpenAI() {
-  if (!openai) openai = new OpenAI({ apiKey: getOpenAIApiKey() });
-  return openai;
-}
 
 export interface ChatRequestInput {
   assistantSlug: string;
@@ -37,7 +39,7 @@ export interface ChatResult {
 
 async function getOrCreateConversation(
   assistant: Assistant,
-  input: ChatRequestInput
+  input: ChatRequestInput,
 ): Promise<Conversation> {
   const supabase = createAdminClient();
 
@@ -78,6 +80,7 @@ async function getOrCreateConversation(
       referrer_url: input.referrerUrl ?? null,
       referrer_domain: input.referrerDomain ?? null,
       channel: input.channel,
+      conversation_state: {},
     })
     .select("*")
     .single();
@@ -100,10 +103,39 @@ async function loadRecentMessages(conversationId: string): Promise<Message[]> {
   return (data ?? []) as Message[];
 }
 
-function detectEnglish(text: string): boolean {
-  const lower = text.toLowerCase();
-  const englishHints = ["what", "how", "can you", "please", "insurance", "hello", "hi "];
-  return englishHints.some((h) => lower.includes(h));
+function buildSearchQueries(params: {
+  understandingQueries: string[];
+  product: string | null;
+  intent: string | null;
+  topic: string | null;
+  latestUserMessage: string;
+}): string[] {
+  const fromUnderstanding = params.understandingQueries.map((q) => q.trim()).filter(Boolean);
+  if (fromUnderstanding.length > 0) return fromUnderstanding.slice(0, 3);
+
+  if (!params.product) return [];
+
+  const topic = params.topic ?? params.intent ?? params.latestUserMessage;
+  const base = `${params.product} ${topic}`.trim();
+  return [base, `${params.product} polisvoorwaarden ${topic}`].slice(0, 2);
+}
+
+function buildStateUpdate(params: {
+  understanding: ConversationUnderstanding;
+  resolvedProduct: string | null;
+  clarificationQuestion: string | null;
+}): Partial<ConversationState> {
+  const u = params.understanding;
+  return {
+    intent: u.intent,
+    product: params.resolvedProduct ?? u.product,
+    topic: u.topic,
+    profession: u.profession ?? undefined,
+    customer_type: u.customer_type ?? undefined,
+    known_facts: u.known_facts_update,
+    open_question: params.clarificationQuestion,
+    last_clarification: params.clarificationQuestion ?? undefined,
+  };
 }
 
 export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
@@ -122,64 +154,141 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
   });
 
   const history = await loadRecentMessages(conversation.id);
-  const chunks = await retrieveRelevantChunks(assistant.id, trimmed);
-  const platformRules = await getPlatformInsuranceRules();
-  const grounded = buildGroundedContext(chunks);
+  const priorState = parseConversationState(conversation.conversation_state);
 
-  const localeHint = detectEnglish(trimmed)
-    ? "The customer appears to be writing in English — reply in English."
-    : "Reply in Dutch unless the customer clearly uses another language.";
-
-  const systemParts = [
-    `You are ${assistant.customer_display_name}, the customer-facing AI assistant for Alicia (insurance). You are NOT a human employee.`,
-    assistant.personality_instructions,
-    assistant.system_instructions,
-    "Platform insurance behaviour rules:",
-    ...platformRules.map((r) => `- ${r}`),
-    localeHint,
-    `Knowledge hierarchy when sources conflict: polisvoorwaarden / policy conditions (lowest priority number) override IPID, which override FAQ or general summaries. Never let FAQ contradict formal policy text in the snippets.`,
-    `Product matching: answer only for the product the customer asks about (e.g. AVB vs BAV vs AOV). Ignore snippets clearly about another product. Do not describe BAV limits when the customer asks about AVB unless the snippet is explicitly AVB.`,
-    `Use ONLY the grounded snippets below for concrete coverage, limits, exclusions, cancellation, eigen risico, and policy facts. If snippets do not contain the answer, say so — do not guess.`,
-    `If grounded knowledge is insufficient, use this fallback tone (adapt wording naturally): ${assistant.fallback_message}`,
-    "Grounded knowledge snippets:",
-    grounded,
-  ];
-
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemParts.join("\n\n") },
-    ...history
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-  ];
-
-  const client = getOpenAI();
-  const llmStarted = Date.now();
-  const completion = await client.chat.completions.create({
-    model: assistant.model,
-    messages,
-    temperature: 0.3,
+  const preliminaryProduct = resolveProduct({
+    assistant,
+    latestUserMessage: trimmed,
+    state: priorState,
+    understandingProduct: null,
+    referrerUrl: input.referrerUrl ?? conversation.referrer_url,
   });
 
-  const reply =
-    completion.choices[0]?.message?.content?.trim() ||
-    assistant.fallback_message;
+  const understandingResult = await runConversationUnderstanding({
+    assistant,
+    state: priorState,
+    history,
+    latestUserMessage: trimmed,
+    referrerUrl: input.referrerUrl ?? conversation.referrer_url,
+    referrerDomain: input.referrerDomain ?? conversation.referrer_domain,
+    resolvedProduct: preliminaryProduct.product,
+  });
+
+  const productResolution = resolveProduct({
+    assistant,
+    latestUserMessage: trimmed,
+    state: priorState,
+    understandingProduct: understandingResult.understanding.product,
+    referrerUrl: input.referrerUrl ?? conversation.referrer_url,
+  });
+
+  const resolvedProduct = productResolution.product;
+  const searchQueries = buildSearchQueries({
+    understandingQueries: understandingResult.understanding.search_queries,
+    product: resolvedProduct,
+    intent: understandingResult.understanding.intent,
+    topic: understandingResult.understanding.topic,
+    latestUserMessage: trimmed,
+  });
+
+  const clarification = decideClarification({
+    assistant,
+    state: priorState,
+    understanding: understandingResult.understanding,
+    resolvedProduct,
+    searchQueries,
+  });
+
+  let reply: string;
+  let chunks: Awaited<ReturnType<typeof retrieveRelevantKnowledge>> = [];
+  let synthesisModel = assistant.model;
+  let synthesisUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
+  let synthesisLatencyMs = 0;
+  let clarificationOccurred = false;
+
+  if (clarification.required && clarification.question) {
+    clarificationOccurred = true;
+    reply = await synthesizeClarification({
+      assistant,
+      clarifyingQuestion: clarification.question,
+    });
+  } else {
+    const retrievalStarted = Date.now();
+    chunks =
+      searchQueries.length > 0
+        ? await retrieveRelevantKnowledge({
+            assistantId: assistant.id,
+            product: resolvedProduct,
+            topic: understandingResult.understanding.topic,
+            intent: understandingResult.understanding.intent,
+            searchQueries,
+          })
+        : [];
+
+    const synthesis = await synthesizeAnswer({
+      assistant,
+      state: priorState,
+      understanding: understandingResult.understanding,
+      resolvedProduct,
+      history,
+      latestUserMessage: trimmed,
+      chunks,
+      fallbackMessage: assistant.fallback_message,
+    });
+    reply = synthesis.reply;
+    synthesisModel = synthesis.model;
+    synthesisUsage = synthesis.usage;
+    synthesisLatencyMs = synthesis.latencyMs;
+
+    log.info("chat_synthesis", {
+      assistantId: assistant.id,
+      retrievalMs: Date.now() - retrievalStarted - synthesisLatencyMs,
+      chunkCount: chunks.length,
+    });
+  }
+
+  const nextState = mergeConversationState(
+    priorState,
+    buildStateUpdate({
+      understanding: understandingResult.understanding,
+      resolvedProduct,
+      clarificationQuestion: clarificationOccurred ? clarification.question : null,
+    }),
+  );
+
+  await supabase
+    .from("conversations")
+    .update({
+      conversation_state: nextState,
+      last_message_at: new Date().toISOString(),
+    })
+    .eq("id", conversation.id);
 
   const metadata = {
+    orchestration: "conversation_first_v1",
+    intent: understandingResult.understanding.intent,
+    topic: understandingResult.understanding.topic,
+    resolved_product: resolvedProduct,
+    product_resolution_source: productResolution.source,
+    clarification: clarificationOccurred,
+    clarification_reason: clarification.reason,
+    search_queries: searchQueries,
     retrieved_knowledge: chunks.map((c) => ({
       document_id: c.document_id,
+      document_title: c.document_title,
+      product: c.product,
+      authority_rank: c.authority_rank,
       page_from: c.page_from,
       page_to: c.page_to,
+      rerank_score: c.rerank_score,
     })),
-    prompt_tokens: completion.usage?.prompt_tokens,
-    completion_tokens: completion.usage?.completion_tokens,
-    total_tokens: completion.usage?.total_tokens,
-    retrieval_latency_ms: llmStarted - started,
-    llm_latency_ms: Date.now() - llmStarted,
+    understanding_model: understandingResult.model,
+    understanding_tokens: understandingResult.usage,
+    understanding_latency_ms: understandingResult.latencyMs,
+    answer_model: synthesisModel,
+    answer_tokens: synthesisUsage,
+    answer_latency_ms: synthesisLatencyMs,
     total_latency_ms: Date.now() - started,
-    model: assistant.model,
   };
 
   const { data: saved, error: saveError } = await supabase
@@ -188,7 +297,7 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
       conversation_id: conversation.id,
       role: "assistant",
       content: reply,
-      model: assistant.model,
+      model: clarificationOccurred ? understandingResult.model : synthesisModel,
       metadata,
     })
     .select("id")
@@ -196,15 +305,11 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
 
   if (saveError) throw new Error(saveError.message);
 
-  await supabase
-    .from("conversations")
-    .update({ last_message_at: new Date().toISOString() })
-    .eq("id", conversation.id);
-
   log.info("chat_completed", {
     assistantId: assistant.id,
     conversationId: conversation.id,
     channel: input.channel,
+    clarification: clarificationOccurred,
     chunkCount: chunks.length,
     latencyMs: Date.now() - started,
   });

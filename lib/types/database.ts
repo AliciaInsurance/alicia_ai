@@ -24,6 +24,8 @@ export type KnowledgeReviewStatus = "draft" | "pending_review" | "approved" | "r
 export type MessageRole = "user" | "assistant" | "system";
 export type ConversationChannel = "widget" | "admin_test";
 
+export type AssistantType = "public_sales" | "public_service" | "internal_copilot";
+
 export interface Assistant {
   id: string;
   internal_name: string;
@@ -35,6 +37,16 @@ export interface Assistant {
   greeting: string;
   fallback_message: string;
   personality_instructions: string;
+  assistant_type: AssistantType;
+  purpose: string;
+  audience: string;
+  channel_context: string;
+  allowed_products: string[];
+  partner: string | null;
+  default_product: string | null;
+  goals: string;
+  restrictions: string;
+  understanding_model: string;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +122,7 @@ export interface Conversation {
   referrer_url: string | null;
   referrer_domain: string | null;
   channel: ConversationChannel;
+  conversation_state: Record<string, unknown>;
   started_at: string;
   last_message_at: string;
 }

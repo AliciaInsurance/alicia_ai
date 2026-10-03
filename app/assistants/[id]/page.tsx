@@ -23,7 +23,8 @@ import { DatabaseNotice } from "@/components/admin/database-notice";
 import { getPublicAppUrl } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkAliciaAiDatabase } from "@/lib/supabase/status";
-import type { Assistant, KnowledgeSource, WidgetConfig } from "@/lib/types/database";
+import { normalizeAssistantRow } from "@/lib/chat/normalize-assistant";
+import type { KnowledgeSource, WidgetConfig } from "@/lib/types/database";
 import type { AssistantSource } from "@/lib/types/supabase-database";
 
 export default async function AssistantDetailPage({
@@ -50,9 +51,13 @@ export default async function AssistantDetailPage({
     .eq("id", id)
     .maybeSingle();
 
-  const assistant = assistantRow as Assistant | null;
+  const assistant = assistantRow
+    ? normalizeAssistantRow(assistantRow as Record<string, unknown>)
+    : null;
 
   if (!assistant) notFound();
+
+  const allowedProductsValue = (assistant.allowed_products ?? []).join(", ");
 
   const [{ data: widgetRow }, { data: sourceLinks }, { data: allSources }] = await Promise.all([
     supabase.from("widget_configs").select("*").eq("assistant_id", id).maybeSingle(),
@@ -128,6 +133,16 @@ export default async function AssistantDetailPage({
               name="personality_instructions"
               value={assistant.personality_instructions}
             />
+            <input type="hidden" name="assistant_type" value={assistant.assistant_type} />
+            <input type="hidden" name="purpose" value={assistant.purpose} />
+            <input type="hidden" name="audience" value={assistant.audience} />
+            <input type="hidden" name="channel_context" value={assistant.channel_context} />
+            <input type="hidden" name="allowed_products" value={allowedProductsValue} />
+            <input type="hidden" name="partner" value={assistant.partner ?? ""} />
+            <input type="hidden" name="default_product" value={assistant.default_product ?? ""} />
+            <input type="hidden" name="goals" value={assistant.goals} />
+            <input type="hidden" name="restrictions" value={assistant.restrictions} />
+            <input type="hidden" name="understanding_model" value={assistant.understanding_model} />
             <label className="block text-[15px] font-medium text-ink">
               Interne naam
               <Input name="internal_name" defaultValue={assistant.internal_name} className="mt-2" />
@@ -172,7 +187,84 @@ export default async function AssistantDetailPage({
         </section>
 
         <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">2. Instructies</h2>
+          <h2 className="font-display text-lg font-bold text-ink">2. Context &amp; doel</h2>
+          <p className="mt-1 text-[15px] text-muted">
+            Bepaalt productscope, doelgroep en hoe de assistant gesprekken interpreteert vóór kennisophaling.
+          </p>
+          <form action={updateAssistant.bind(null, id)} className="mt-3 grid gap-3 md:grid-cols-2">
+            <input type="hidden" name="internal_name" value={assistant.internal_name} />
+            <input type="hidden" name="slug" value={assistant.slug} />
+            <input type="hidden" name="status" value={assistant.status} />
+            <input type="hidden" name="model" value={assistant.model} />
+            <input type="hidden" name="greeting" value={assistant.greeting} />
+            <input type="hidden" name="fallback_message" value={assistant.fallback_message} />
+            <input type="hidden" name="system_instructions" value={assistant.system_instructions} />
+            <input type="hidden" name="personality_instructions" value={assistant.personality_instructions} />
+            <label className="block text-[15px] font-medium text-ink">
+              Type
+              <select
+                name="assistant_type"
+                defaultValue={assistant.assistant_type}
+                className="mt-2 h-11 w-full rounded-2xl border border-input-border bg-cream px-4 text-[15px]"
+              >
+                <option value="public_sales">Salesassistant (publiek)</option>
+                <option value="public_service">Self-service (publiek)</option>
+                <option value="internal_copilot">Interne copilot</option>
+              </select>
+            </label>
+            <label className="block text-[15px] font-medium text-ink">
+              Understanding-model
+              <Input
+                name="understanding_model"
+                defaultValue={assistant.understanding_model}
+                className="mt-2"
+              />
+            </label>
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Doel
+              <Textarea name="purpose" defaultValue={assistant.purpose} rows={2} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink">
+              Doelgroep
+              <Input name="audience" defaultValue={assistant.audience} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink">
+              Partner / contextlabel
+              <Input name="partner" defaultValue={assistant.partner ?? ""} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Producten (komma-gescheiden, bijv. AVB, BAV, AOV)
+              <Input name="allowed_products" defaultValue={allowedProductsValue} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink">
+              Standaardproduct
+              <Input
+                name="default_product"
+                defaultValue={assistant.default_product ?? ""}
+                placeholder="geen"
+                className="mt-2"
+              />
+            </label>
+            <label className="block text-[15px] font-medium text-ink">
+              Kanaal / funnel
+              <Input name="channel_context" defaultValue={assistant.channel_context} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Doelen
+              <Textarea name="goals" defaultValue={assistant.goals} rows={2} className="mt-2" />
+            </label>
+            <label className="block text-[15px] font-medium text-ink md:col-span-2">
+              Beperkingen
+              <Textarea name="restrictions" defaultValue={assistant.restrictions} rows={2} className="mt-2" />
+            </label>
+            <div className="md:col-span-2">
+              <Button type="submit">Opslaan</Button>
+            </div>
+          </form>
+        </section>
+
+        <section className="card-surface p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold text-ink">3. Instructies</h2>
           <form action={updateAssistant.bind(null, id)} className="mt-3 space-y-3">
             <input type="hidden" name="internal_name" value={assistant.internal_name} />
             <input type="hidden" name="slug" value={assistant.slug} />
@@ -180,6 +272,16 @@ export default async function AssistantDetailPage({
             <input type="hidden" name="model" value={assistant.model} />
             <input type="hidden" name="greeting" value={assistant.greeting} />
             <input type="hidden" name="fallback_message" value={assistant.fallback_message} />
+            <input type="hidden" name="assistant_type" value={assistant.assistant_type} />
+            <input type="hidden" name="purpose" value={assistant.purpose} />
+            <input type="hidden" name="audience" value={assistant.audience} />
+            <input type="hidden" name="channel_context" value={assistant.channel_context} />
+            <input type="hidden" name="allowed_products" value={allowedProductsValue} />
+            <input type="hidden" name="partner" value={assistant.partner ?? ""} />
+            <input type="hidden" name="default_product" value={assistant.default_product ?? ""} />
+            <input type="hidden" name="goals" value={assistant.goals} />
+            <input type="hidden" name="restrictions" value={assistant.restrictions} />
+            <input type="hidden" name="understanding_model" value={assistant.understanding_model} />
             <label className="block text-[15px] font-medium text-ink">
               System instructions
               <Textarea
@@ -203,7 +305,7 @@ export default async function AssistantDetailPage({
         </section>
 
         <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">3. Kennis</h2>
+          <h2 className="font-display text-lg font-bold text-ink">4. Kennis</h2>
           <ul className="mt-3 space-y-2 text-[15px]">
             {attachedSources.map((s) => (
               <li
@@ -244,7 +346,7 @@ export default async function AssistantDetailPage({
         </section>
 
         <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">4. Widget</h2>
+          <h2 className="font-display text-lg font-bold text-ink">5. Widget</h2>
           {widget ? (
             <form action={updateWidgetConfig.bind(null, id)} className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="block text-[15px] font-medium text-ink">
@@ -284,7 +386,7 @@ export default async function AssistantDetailPage({
         </section>
 
         <section className="card-surface p-5 sm:p-6">
-          <h2 className="font-display text-lg font-bold text-ink">5. Test</h2>
+          <h2 className="font-display text-lg font-bold text-ink">6. Test</h2>
           <p className="mt-1 text-[15px] text-muted">
             Zelfde <code className="text-ink">/api/chat</code> flow als de publieke widget (admin_test).
           </p>

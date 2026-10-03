@@ -1,3 +1,4 @@
+import { normalizeAssistantRow } from "@/lib/chat/normalize-assistant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Assistant } from "@/lib/types/database";
 
@@ -13,7 +14,9 @@ export async function resolveActiveAssistant(
     .eq("slug", slugOrPublicSlug)
     .maybeSingle();
 
-  const byAssistantSlug = byAssistantSlugRow as Assistant | null;
+  const byAssistantSlug = byAssistantSlugRow
+    ? normalizeAssistantRow(byAssistantSlugRow as Record<string, unknown>)
+    : null;
 
   if (byAssistantSlug?.status === "active") return byAssistantSlug;
 
@@ -33,7 +36,9 @@ export async function resolveActiveAssistant(
     .eq("id", widget.assistant_id)
     .single();
 
-  const assistant = assistantRow as Assistant | null;
+  const assistant = assistantRow
+    ? normalizeAssistantRow(assistantRow as Record<string, unknown>)
+    : null;
 
   if (!assistant || assistant.status !== "active") {
     throw new Error("Assistant not found or not available");

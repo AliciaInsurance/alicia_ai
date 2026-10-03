@@ -9,7 +9,8 @@ const FALLBACK_RULES = [
   "Do not make automated insurance decisions.",
   "Do not ask for special-category personal data.",
   "Keep answers concise and customer friendly.",
-  "Use Dutch by default; reply in English when the customer writes in English.",
+  "Reply in the customer's language; use Dutch when language is ambiguous.",
+  "Behave as an intelligent assistant: resolve ambiguity, maintain continuity, avoid over-questioning, never fabricate policy facts.",
 ];
 
 export async function getPlatformInsuranceRules(): Promise<string[]> {
