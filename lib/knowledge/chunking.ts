@@ -3,8 +3,12 @@ export const CHUNK_CONFIG = {
   overlapChars: 120,
   embeddingModel: "text-embedding-3-small" as const,
   embeddingDimensions: 1536,
+  /** Chunks returned to the LLM after reranking */
   retrievalCount: 6,
-  similarityThreshold: 0.2,
+  /** Vector candidates before authority/product rerank */
+  retrievalCandidateCount: 24,
+  similarityThreshold: 0.14,
+  maxChunksPerDocument: 2,
 };
 
 export type TextChunkSegment = {

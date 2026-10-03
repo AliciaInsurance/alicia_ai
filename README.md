@@ -133,6 +133,8 @@ Each source holds **knowledge items** of four types:
 
 Max upload/URL-grootte: **8 MB** (synchroon in request).
 
+**Documentprioriteit:** zet per item **Product** (bijv. `AVB`), **Documenttype** (`Voorwaarden`, `IPID`, `FAQ`) en optioneel **Prioriteit** (`authority_rank`, lager = leidend). Bij conflict geldt: voorwaarden > IPID > FAQ. Retrieval rerankt vector-resultaten op prioriteit en filtert product-mismatch (AVB vs BAV). Na metadata-wijziging: **Opnieuw verwerken** op elk item.
+
 ### Test chat
 
 Assistant detail → **Test** tab uses `/api/chat` with `channel: admin_test` (same orchestration as widget).

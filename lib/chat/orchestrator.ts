@@ -137,8 +137,11 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
     "Platform insurance behaviour rules:",
     ...platformRules.map((r) => `- ${r}`),
     localeHint,
+    `Knowledge hierarchy when sources conflict: polisvoorwaarden / policy conditions (lowest priority number) override IPID, which override FAQ or general summaries. Never let FAQ contradict formal policy text in the snippets.`,
+    `Product matching: answer only for the product the customer asks about (e.g. AVB vs BAV vs AOV). Ignore snippets clearly about another product. Do not describe BAV limits when the customer asks about AVB unless the snippet is explicitly AVB.`,
+    `Use ONLY the grounded snippets below for concrete coverage, limits, exclusions, cancellation, eigen risico, and policy facts. If snippets do not contain the answer, say so — do not guess.`,
     `If grounded knowledge is insufficient, use this fallback tone (adapt wording naturally): ${assistant.fallback_message}`,
-    "Grounded knowledge snippets (only use these for Alicia/product-specific facts):",
+    "Grounded knowledge snippets:",
     grounded,
   ];
 

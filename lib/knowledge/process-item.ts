@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { splitTextIntoChunkSegments } from "@/lib/knowledge/chunking";
 import { embedTexts } from "@/lib/knowledge/embeddings";
 import { structuredDataToSearchText } from "@/lib/knowledge/parse-structured";
+import { buildKnowledgeChunkHeader } from "@/lib/knowledge/chunk-header";
 import { hashContent } from "@/lib/knowledge/extract";
 import { log } from "@/lib/logger";
 import type { KnowledgeItem } from "@/lib/types/database";
@@ -60,12 +61,14 @@ export async function processKnowledgeItem(itemId: string): Promise<ProcessItemR
 
     await supabase.from("knowledge_chunks").delete().eq("document_id", itemId);
 
-    const embeddings = await embedTexts(segments.map((s) => s.content));
+    const header = buildKnowledgeChunkHeader(item);
+    const chunkBodies = segments.map((s) => header + s.content);
+    const embeddings = await embedTexts(chunkBodies);
     const chunkRows = segments.map((segment, index) => ({
       document_id: itemId,
       knowledge_source_id: item.knowledge_source_id,
       chunk_index: index,
-      content: segment.content,
+      content: chunkBodies[index]!,
       embedding: embeddings[index],
       token_count: Math.ceil(segment.content.length / 4),
       page_from: segment.pageFrom,

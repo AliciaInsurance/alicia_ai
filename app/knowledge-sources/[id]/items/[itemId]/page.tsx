@@ -123,7 +123,15 @@ export default async function KnowledgeItemDetailPage({
             <Input
               name="document_type"
               defaultValue={item.document_type ?? ""}
-              placeholder="Documenttype"
+              placeholder="Voorwaarden, IPID, FAQ"
+            />
+            <Input
+              name="authority_rank"
+              type="number"
+              min={1}
+              max={100}
+              defaultValue={item.authority_rank ?? 50}
+              placeholder="Prioriteit (1=hoogst, 10=voorwaarden, 80=FAQ)"
             />
             <Input
               name="valid_from"

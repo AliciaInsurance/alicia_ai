@@ -61,6 +61,8 @@ export interface KnowledgeItem {
   version_label: string | null;
   product: string | null;
   document_type: string | null;
+  /** 1 = highest authority (voorwaarden), 100 = lowest; used in retrieval reranking */
+  authority_rank: number;
   valid_from: string | null;
   valid_until: string | null;
   filename: string | null;

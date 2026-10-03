@@ -16,6 +16,7 @@ import { fetchWebContent } from "@/lib/knowledge/fetch-web";
 import { parseCsvBuffer, parseJsonBuffer } from "@/lib/knowledge/parse-structured";
 import { processKnowledgeItem } from "@/lib/knowledge/process-item";
 import { refreshWebKnowledgeItem } from "@/lib/knowledge/refresh-web-item";
+import { suggestAuthorityRank } from "@/lib/knowledge/authority";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { KnowledgeItem } from "@/lib/types/database";
 
@@ -46,13 +47,24 @@ function redirectSourceNotice(sourceId: string, kind: "error" | "notice", messag
   redirect(`/knowledge-sources/${sourceId}?${params.toString()}`);
 }
 
+function parseAuthorityRank(formData: FormData, documentType: string | null): number {
+  const raw = String(formData.get("authority_rank") ?? "").trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1 && n <= 100) return Math.round(n);
+  }
+  return suggestAuthorityRank(documentType);
+}
+
 function metadataFromForm(formData: FormData) {
+  const document_type = String(formData.get("document_type") ?? "").trim() || null;
   return {
     category: String(formData.get("category") ?? "").trim() || null,
     owner: String(formData.get("owner") ?? "").trim() || null,
     version_label: String(formData.get("version_label") ?? "").trim() || null,
     product: String(formData.get("product") ?? "").trim() || null,
-    document_type: String(formData.get("document_type") ?? "").trim() || null,
+    document_type,
+    authority_rank: parseAuthorityRank(formData, document_type),
     valid_from: parseOptionalDate(String(formData.get("valid_from") ?? "")),
     valid_until: parseOptionalDate(String(formData.get("valid_until") ?? "")),
   };

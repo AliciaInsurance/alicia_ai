@@ -29,15 +29,34 @@ export async function getPlatformInsuranceRules(): Promise<string[]> {
   return FALLBACK_RULES;
 }
 
-export function buildGroundedContext(chunks: { id: string; content: string }[]): string {
+export function buildGroundedContext(
+  chunks: {
+    content: string;
+    document_title: string;
+    document_type: string | null;
+    product: string | null;
+    authority_rank: number;
+    page_from: number | null;
+    page_to: number | null;
+  }[],
+): string {
   if (chunks.length === 0) {
     return "Geen relevante kennisfragmenten gevonden voor deze vraag.";
   }
 
   return chunks
-    .map(
-      (c, i) =>
-        `[Bron ${i + 1} | chunk_id=${c.id}]\n${c.content}`
-    )
+    .map((c, i) => {
+      const meta = [
+        `Bron ${i + 1}`,
+        c.product ? `product=${c.product}` : null,
+        c.document_type ? `doctype=${c.document_type}` : null,
+        `prioriteit=${c.authority_rank}`,
+        c.document_title,
+        c.page_from != null ? `pagina ${c.page_from}${c.page_to && c.page_to !== c.page_from ? `–${c.page_to}` : ""}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      return `[${meta}]\n${c.content}`;
+    })
     .join("\n\n---\n\n");
 }

@@ -15,7 +15,14 @@ function MetaFields() {
       <Input name="owner" placeholder="Eigenaar / bron (optioneel)" />
       <Input name="version_label" placeholder="Versie (optioneel)" />
       <Input name="product" placeholder="Product (optioneel)" />
-      <Input name="document_type" placeholder="Documenttype (optioneel)" />
+      <Input name="document_type" placeholder="Documenttype: Voorwaarden, IPID, FAQ" />
+      <Input
+        name="authority_rank"
+        type="number"
+        min={1}
+        max={100}
+        placeholder="Prioriteit (1=hoogst, leeg=auto uit type)"
+      />
       <div className="grid gap-2 sm:grid-cols-2">
         <Input name="valid_from" type="date" placeholder="Geldig vanaf" />
         <Input name="valid_until" type="date" placeholder="Geldig tot" />
