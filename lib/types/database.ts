@@ -9,6 +9,16 @@ export type KnowledgeItemStatus =
 
 export type KnowledgeType = "manual_text" | "document" | "web" | "structured_data";
 
+/** Legacy/file column — must match DB source_type_check */
+export type KnowledgeSourceType =
+  | "manual"
+  | "pdf"
+  | "text"
+  | "markdown"
+  | "url"
+  | "csv"
+  | "json";
+
 export type KnowledgeReviewStatus = "draft" | "pending_review" | "approved" | "rejected";
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -64,7 +74,7 @@ export interface KnowledgeItem {
   structured_data: StructuredDataPayload | null;
   storage_path: string | null;
   error_message: string | null;
-  source_type: string | null;
+  source_type: KnowledgeSourceType | null;
   created_at: string;
   updated_at: string;
 }
