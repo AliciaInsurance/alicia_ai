@@ -12,6 +12,7 @@ export const ConversationStateSchema = z
     known_facts: z.record(z.string()).optional(),
     open_question: z.string().nullable().optional(),
     last_clarification: z.string().nullable().optional(),
+    clarification_attempts: z.number().int().optional(),
   })
   .passthrough();
 
@@ -41,6 +42,13 @@ export function mergeConversationState(
     "last_clarification",
   ] as const;
 
+  if (update.clarification_attempts !== undefined) {
+    const attempts = update.clarification_attempts;
+    if (typeof attempts === "number" && attempts >= 0) {
+      next.clarification_attempts = attempts;
+    }
+  }
+
   for (const key of scalarKeys) {
     const value = update[key];
     if (value === undefined) continue;
@@ -60,12 +68,23 @@ export function mergeConversationState(
   return next;
 }
 
-export function shouldSkipRepeatClarification(
+export function nextClarificationAttemptCount(
   state: ConversationState,
   clarifyingQuestion: string,
-): boolean {
-  const q = clarifyingQuestion.trim().toLowerCase();
-  if (!q) return true;
+): number {
+  const prev = state.clarification_attempts ?? 0;
   const last = (state.last_clarification ?? "").trim().toLowerCase();
-  return last === q;
+  const next = clarifyingQuestion.trim().toLowerCase();
+  if (last && last === next) return prev + 1;
+  if (state.open_question?.trim()) return prev + 1;
+  return 1;
+}
+
+/** Clear product clarification lifecycle when product becomes known. */
+export function clearClarificationLifecycle(): Partial<ConversationState> {
+  return {
+    open_question: null,
+    last_clarification: null,
+    clarification_attempts: 0,
+  };
 }

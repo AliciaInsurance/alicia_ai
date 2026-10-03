@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { decideClarification } from "../clarification.ts";
+import { decideClarification, materialAmbiguityBlocksPolicyRetrieval } from "../clarification.ts";
 import { parseConversationState } from "../conversation-state.ts";
 import { resolveProduct } from "../product-resolution.ts";
+import { reformulateClarificationQuestion } from "../clarification-reformulate.ts";
 import { CONVERSATION_EVAL_CASES, mockAssistant } from "./cases.ts";
 
 function runDeterministicEval(): void {
@@ -38,6 +39,13 @@ function runDeterministicEval(): void {
       search_queries: productResolution.product ? [`${productResolution.product} dekking`] : [],
     };
 
+    const blocks = materialAmbiguityBlocksPolicyRetrieval({
+      assistant,
+      understanding,
+      resolvedProduct: productResolution.product,
+      searchQueries: understanding.search_queries,
+    });
+
     const clarification = decideClarification({
       assistant,
       state,
@@ -47,10 +55,16 @@ function runDeterministicEval(): void {
     });
 
     if (evalCase.expected.behaviour === "clarify") {
+      assert.equal(blocks, true, `${evalCase.id}: should block policy retrieval`);
       assert.equal(
         clarification.required,
         true,
         `${evalCase.id}: should require clarification`,
+      );
+      assert.equal(
+        clarification.blocksPolicyRetrieval,
+        true,
+        `${evalCase.id}: blocksPolicyRetrieval`,
       );
       if (evalCase.expected.mustNotRetrieveBeforeClarify) {
         assert.ok(
@@ -66,7 +80,73 @@ function runDeterministicEval(): void {
     }
   }
 
-  console.log(`conversation eval: ${CONVERSATION_EVAL_CASES.length} deterministic cases passed`);
+  // Repeat clarification: user still unresolved — must still block retrieval
+  {
+    const assistant = mockAssistant({ allowed_products: ["AVB", "BAV", "AOV"] });
+    const state = parseConversationState({
+      open_question: "Over welke verzekering heb je het — bijvoorbeeld AVB, BAV of AOV?",
+      last_clarification:
+        "Over welke verzekering heb je het — bijvoorbeeld AVB, BAV of AOV?",
+      clarification_attempts: 1,
+    });
+    const understanding = {
+      intent: "coverage_limit",
+      product: null,
+      topic: "insured_amount",
+      needs_clarification: true,
+      missing_information: ["product"],
+      clarifying_question:
+        "Over welke verzekering heb je het — bijvoorbeeld AVB, BAV of AOV?",
+      search_queries: [],
+    };
+    const decision = decideClarification({
+      assistant,
+      state,
+      understanding,
+      resolvedProduct: null,
+      searchQueries: [],
+    });
+    assert.equal(decision.required, true, "repeat-unresolved: still clarify");
+    assert.equal(decision.blocksPolicyRetrieval, true, "repeat-unresolved: block retrieval");
+    const reformulated = reformulateClarificationQuestion(
+      state,
+      understanding.clarifying_question!,
+    );
+    assert.notEqual(
+      reformulated.toLowerCase(),
+      state.last_clarification!.toLowerCase(),
+      "repeat-unresolved: reformulated question",
+    );
+  }
+
+  // New topic after resolved answer — prior clarification must not suppress
+  {
+    const assistant = mockAssistant({ allowed_products: ["AVB", "BAV"] });
+    const state = parseConversationState({
+      last_clarification: "Over welke verzekering heb je het — bijvoorbeeld AVB, BAV of AOV?",
+      open_question: null,
+      product: "AVB",
+    });
+    const understanding = {
+      intent: "coverage_limit",
+      product: "AVB",
+      topic: null,
+      needs_clarification: false,
+      missing_information: [],
+      clarifying_question: null,
+      search_queries: ["AVB maximale dekking"],
+    };
+    const decision = decideClarification({
+      assistant,
+      state,
+      understanding,
+      resolvedProduct: "AVB",
+      searchQueries: understanding.search_queries,
+    });
+    assert.equal(decision.required, false, "new-topic: no spurious clarify block");
+  }
+
+  console.log(`conversation eval: ${CONVERSATION_EVAL_CASES.length + 2} deterministic cases passed`);
 }
 
 runDeterministicEval();

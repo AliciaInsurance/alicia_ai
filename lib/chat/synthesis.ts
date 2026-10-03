@@ -39,7 +39,8 @@ export async function synthesizeAnswer(params: {
   state: ConversationState;
   understanding: ConversationUnderstanding;
   resolvedProduct: string | null;
-  history: Message[];
+  /** Prior turns only — current turn appended once at the end. */
+  priorHistory: Message[];
   latestUserMessage: string;
   chunks: RetrievedChunk[];
   fallbackMessage: string;
@@ -79,14 +80,14 @@ export async function synthesizeAnswer(params: {
     grounded,
   ];
 
+  const prior = params.priorHistory.filter((m) => m.role === "user" || m.role === "assistant");
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemParts.join("\n\n") },
-    ...params.history
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+    ...prior.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content: params.latestUserMessage },
   ];
 
   const client = getOpenAI();

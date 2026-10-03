@@ -1,6 +1,9 @@
 import { decideClarification } from "@/lib/chat/clarification";
+import { splitConversationTurn } from "@/lib/chat/conversation-turn";
 import {
+  clearClarificationLifecycle,
   mergeConversationState,
+  nextClarificationAttemptCount,
   parseConversationState,
   type ConversationState,
 } from "@/lib/chat/conversation-state";
@@ -121,20 +124,53 @@ function buildSearchQueries(params: {
 }
 
 function buildStateUpdate(params: {
+  priorState: ConversationState;
   understanding: ConversationUnderstanding;
   resolvedProduct: string | null;
   clarificationQuestion: string | null;
 }): Partial<ConversationState> {
   const u = params.understanding;
+
+  if (params.resolvedProduct) {
+    return {
+      intent: u.intent,
+      product: params.resolvedProduct,
+      topic: u.topic,
+      profession: u.profession ?? undefined,
+      customer_type: u.customer_type ?? undefined,
+      known_facts: u.known_facts_update,
+      ...clearClarificationLifecycle(),
+    };
+  }
+
+  if (params.clarificationQuestion) {
+    const attempts = nextClarificationAttemptCount(
+      params.priorState,
+      params.clarificationQuestion,
+    );
+    return {
+      intent: u.intent,
+      product: u.product,
+      topic: u.topic,
+      profession: u.profession ?? undefined,
+      customer_type: u.customer_type ?? undefined,
+      known_facts: u.known_facts_update,
+      open_question: params.clarificationQuestion,
+      last_clarification: params.clarificationQuestion,
+      clarification_attempts: attempts,
+    };
+  }
+
   return {
     intent: u.intent,
-    product: params.resolvedProduct ?? u.product,
+    product: u.product,
     topic: u.topic,
     profession: u.profession ?? undefined,
     customer_type: u.customer_type ?? undefined,
     known_facts: u.known_facts_update,
-    open_question: params.clarificationQuestion,
-    last_clarification: params.clarificationQuestion ?? undefined,
+    open_question: null,
+    last_clarification: null,
+    clarification_attempts: 0,
   };
 }
 
@@ -154,6 +190,7 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
   });
 
   const history = await loadRecentMessages(conversation.id);
+  const { priorHistory, currentUserMessage } = splitConversationTurn(history, trimmed);
   const priorState = parseConversationState(conversation.conversation_state);
 
   const preliminaryProduct = resolveProduct({
@@ -167,8 +204,8 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
   const understandingResult = await runConversationUnderstanding({
     assistant,
     state: priorState,
-    history,
-    latestUserMessage: trimmed,
+    priorHistory,
+    latestUserMessage: currentUserMessage,
     referrerUrl: input.referrerUrl ?? conversation.referrer_url,
     referrerDomain: input.referrerDomain ?? conversation.referrer_domain,
     resolvedProduct: preliminaryProduct.product,
@@ -206,6 +243,8 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
   let synthesisLatencyMs = 0;
   let clarificationOccurred = false;
 
+  const mustNotRetrieve = clarification.blocksPolicyRetrieval;
+
   if (clarification.required && clarification.question) {
     clarificationOccurred = true;
     reply = await synthesizeClarification({
@@ -230,8 +269,8 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
       state: priorState,
       understanding: understandingResult.understanding,
       resolvedProduct,
-      history,
-      latestUserMessage: trimmed,
+      priorHistory,
+      latestUserMessage: currentUserMessage,
       chunks,
       fallbackMessage: assistant.fallback_message,
     });
@@ -250,9 +289,11 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
   const nextState = mergeConversationState(
     priorState,
     buildStateUpdate({
+      priorState,
       understanding: understandingResult.understanding,
       resolvedProduct,
-      clarificationQuestion: clarificationOccurred ? clarification.question : null,
+      clarificationQuestion:
+        clarificationOccurred && clarification.question ? clarification.question : null,
     }),
   );
 
@@ -273,10 +314,15 @@ export async function runChat(input: ChatRequestInput): Promise<ChatResult> {
     clarification: clarificationOccurred,
     clarification_reason: clarification.reason,
     search_queries: searchQueries,
+    blocks_policy_retrieval: mustNotRetrieve,
     retrieved_knowledge: chunks.map((c) => ({
       document_id: c.document_id,
       document_title: c.document_title,
       product: c.product,
+      chunk_product: c.chunk_product,
+      effective_product: c.effective_product,
+      product_neutral: c.product_neutral,
+      product_eligibility: c.product_eligibility,
       authority_rank: c.authority_rank,
       page_from: c.page_from,
       page_to: c.page_to,

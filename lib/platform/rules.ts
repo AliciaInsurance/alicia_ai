@@ -36,6 +36,9 @@ export function buildGroundedContext(
     document_title: string;
     document_type: string | null;
     product: string | null;
+    effective_product?: string | null;
+    product_neutral?: boolean;
+    product_eligibility?: string;
     authority_rank: number;
     page_from: number | null;
     page_to: number | null;
@@ -49,7 +52,9 @@ export function buildGroundedContext(
     .map((c, i) => {
       const meta = [
         `Bron ${i + 1}`,
-        c.product ? `product=${c.product}` : null,
+        c.product_neutral ? "product=neutral" : null,
+        c.effective_product ? `effective_product=${c.effective_product}` : c.product ? `product=${c.product}` : null,
+        c.product_eligibility ? `eligibility=${c.product_eligibility}` : null,
         c.document_type ? `doctype=${c.document_type}` : null,
         `prioriteit=${c.authority_rank}`,
         c.document_title,

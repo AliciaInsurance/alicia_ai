@@ -2,6 +2,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { embedTexts } from "@/lib/knowledge/embeddings";
 import { CHUNK_CONFIG } from "@/lib/knowledge/chunking";
 import {
+  chunkEligibleForResolvedProduct,
+  effectiveChunkProduct,
+} from "@/lib/knowledge/chunk-product";
+import {
   effectiveAuthorityRank,
   productFromDocumentField,
   productMismatchPenalty,
@@ -18,6 +22,10 @@ export type RetrievedChunk = MatchedChunk & {
   product: string | null;
   authority_rank: number;
   rerank_score: number;
+  chunk_product: string | null;
+  product_neutral: boolean;
+  effective_product: string | null;
+  product_eligibility: "neutral" | "specific" | "untagged_mixed";
 };
 
 export type RetrievalContext = {
@@ -54,16 +62,6 @@ function selectWithDocumentCap(
     if (out.length >= limit) break;
   }
   return out;
-}
-
-function chunkMatchesProduct(
-  docProduct: string | null | undefined,
-  resolvedProduct: string | null,
-): boolean {
-  if (!resolvedProduct) return true;
-  const chunkProduct = productFromDocumentField(docProduct);
-  if (chunkProduct === "UNKNOWN") return true;
-  return chunkProduct === resolvedProduct;
 }
 
 async function vectorSearchForQuery(
@@ -139,28 +137,38 @@ export async function retrieveRelevantKnowledge(
   const supabase = createAdminClient();
   const { data: docRows } = await supabase
     .from("knowledge_documents")
-    .select("id, title, document_type, product, authority_rank")
+    .select("id, title, document_type, product, authority_rank, product_neutral")
     .in("id", docIds);
 
   const docMap = new Map(
     ((docRows ?? []) as Pick<
       KnowledgeItem,
-      "id" | "title" | "document_type" | "product" | "authority_rank"
+      "id" | "title" | "document_type" | "product" | "authority_rank" | "product_neutral"
     >[]).map((d) => [d.id, d]),
   );
 
   const queryProducts: ProductHint[] = ctx.product ? [ctx.product as ProductHint] : [];
 
   const ranked: RetrievedChunk[] = aboveThreshold
-    .filter((chunk) => {
-      const doc = docMap.get(chunk.document_id);
-      return chunkMatchesProduct(doc?.product, ctx.product);
-    })
     .map((chunk) => {
       const doc = docMap.get(chunk.document_id);
+      const effective = effectiveChunkProduct({
+        chunkProduct: chunk.chunk_product,
+        chunkNeutral: chunk.product_neutral,
+        documentProduct: doc?.product,
+        documentNeutral: doc?.product_neutral,
+        content: chunk.content,
+      });
+
+      return { chunk, doc, effective };
+    })
+    .filter(({ effective }) => chunkEligibleForResolvedProduct(ctx.product, effective))
+    .map(({ chunk, doc, effective }) => {
       const authority = effectiveAuthorityRank(doc?.authority_rank, doc?.document_type);
-      const chunkProduct = productFromDocumentField(doc?.product);
-      const penalty = productMismatchPenalty(queryProducts, chunkProduct);
+      const chunkProductHint = productFromDocumentField(
+        effective.effective_product ?? doc?.product,
+      );
+      const penalty = productMismatchPenalty(queryProducts, chunkProductHint);
       const rerank_score = rerankRetrievalScore(chunk.similarity, authority, penalty);
 
       return {
@@ -170,6 +178,10 @@ export async function retrieveRelevantKnowledge(
         product: doc?.product ?? null,
         authority_rank: authority,
         rerank_score,
+        chunk_product: effective.chunk_product,
+        product_neutral: effective.product_neutral,
+        effective_product: effective.effective_product,
+        product_eligibility: effective.eligibility,
       };
     });
 

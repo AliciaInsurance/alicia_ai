@@ -27,10 +27,9 @@ function getOpenAI() {
   return openai;
 }
 
-function formatHistory(messages: Message[]): string {
+function formatPriorHistory(messages: Message[]): string {
   return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(-12)
+    .slice(-11)
     .map((m) => `${m.role === "user" ? "Klant" : "Assistant"}: ${m.content}`)
     .join("\n");
 }
@@ -45,7 +44,8 @@ export type UnderstandingResult = {
 export async function runConversationUnderstanding(params: {
   assistant: Assistant;
   state: ConversationState;
-  history: Message[];
+  /** Prior turns only — must not include latestUserMessage. */
+  priorHistory: Message[];
   latestUserMessage: string;
   referrerUrl?: string | null;
   referrerDomain?: string | null;
@@ -71,8 +71,10 @@ export async function runConversationUnderstanding(params: {
     conversation_state: params.state,
     resolved_product: params.resolvedProduct,
     referrer: params.referrerUrl ?? params.referrerDomain ?? null,
-    recent_messages: formatHistory(params.history),
-    latest_user_message: params.latestUserMessage,
+    prior_messages: formatPriorHistory(
+      params.priorHistory.filter((m) => m.role === "user" || m.role === "assistant"),
+    ),
+    current_user_message: params.latestUserMessage,
     output_schema: {
       intent: "string | null",
       product: "string | null",

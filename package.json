@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:knowledge": "tsx lib/knowledge/pdf-quality.test.mts",
-    "test:conversation": "tsx lib/chat/eval/deterministic.test.mts"
+    "test:conversation": "tsx lib/chat/eval/deterministic.test.mts && tsx lib/knowledge/chunk-product.test.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

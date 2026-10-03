@@ -75,6 +75,8 @@ export interface KnowledgeItem {
   document_type: string | null;
   /** 1 = highest authority (voorwaarden), 100 = lowest; used in retrieval reranking */
   authority_rank: number;
+  /** Document applies to all products (e.g. general Alicia info). */
+  product_neutral?: boolean;
   valid_from: string | null;
   valid_until: string | null;
   filename: string | null;
@@ -145,6 +147,8 @@ export interface MatchedChunk {
   similarity: number;
   page_from: number | null;
   page_to: number | null;
+  chunk_product?: string | null;
+  product_neutral?: boolean;
 }
 
 export interface RetrievedKnowledgeRef {

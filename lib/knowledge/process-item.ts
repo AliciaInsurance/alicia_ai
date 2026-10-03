@@ -1,5 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { splitTextIntoChunkSegments } from "@/lib/knowledge/chunking";
+import {
+  classifyChunkProductMetadata,
+  structuredDataToRowSegments,
+} from "@/lib/knowledge/chunk-product";
 import { embedTexts } from "@/lib/knowledge/embeddings";
 import { structuredDataToSearchText } from "@/lib/knowledge/parse-structured";
 import { buildKnowledgeChunkHeader } from "@/lib/knowledge/chunk-header";
@@ -54,26 +58,60 @@ export async function processKnowledgeItem(itemId: string): Promise<ProcessItemR
 
   try {
     const contentHash = hashContent(text);
-    const segments = splitTextIntoChunkSegments(text);
+    const header = buildKnowledgeChunkHeader(item);
+    const documentProductNeutral = Boolean(item.product_neutral);
+
+    type Segment = {
+      content: string;
+      pageFrom: number | null;
+      pageTo: number | null;
+      rowProduct: string | null;
+    };
+
+    let segments: Segment[];
+
+    if (item.knowledge_type === "structured_data" && item.structured_data) {
+      segments = structuredDataToRowSegments(item.structured_data).map((rowSeg) => ({
+        content: rowSeg.content,
+        pageFrom: null,
+        pageTo: null,
+        rowProduct: rowSeg.rowProduct,
+      }));
+    } else {
+      segments = splitTextIntoChunkSegments(text).map((s) => ({
+        ...s,
+        rowProduct: null,
+      }));
+    }
+
     if (segments.length === 0) {
       throw new Error("Chunking produced no segments");
     }
 
     await supabase.from("knowledge_chunks").delete().eq("document_id", itemId);
 
-    const header = buildKnowledgeChunkHeader(item);
     const chunkBodies = segments.map((s) => header + s.content);
     const embeddings = await embedTexts(chunkBodies);
-    const chunkRows = segments.map((segment, index) => ({
-      document_id: itemId,
-      knowledge_source_id: item.knowledge_source_id,
-      chunk_index: index,
-      content: chunkBodies[index]!,
-      embedding: embeddings[index],
-      token_count: Math.ceil(segment.content.length / 4),
-      page_from: segment.pageFrom,
-      page_to: segment.pageTo,
-    }));
+    const chunkRows = segments.map((segment, index) => {
+      const meta = classifyChunkProductMetadata({
+        content: segment.content,
+        documentProduct: item.product,
+        documentProductNeutral,
+        rowProduct: segment.rowProduct,
+      });
+      return {
+        document_id: itemId,
+        knowledge_source_id: item.knowledge_source_id,
+        chunk_index: index,
+        content: chunkBodies[index]!,
+        embedding: embeddings[index],
+        token_count: Math.ceil(segment.content.length / 4),
+        page_from: segment.pageFrom,
+        page_to: segment.pageTo,
+        chunk_product: meta.chunk_product,
+        product_neutral: meta.product_neutral,
+      };
+    });
 
     const { error: insertError } = await supabase.from("knowledge_chunks").insert(chunkRows);
     if (insertError) throw new Error(insertError.message);
